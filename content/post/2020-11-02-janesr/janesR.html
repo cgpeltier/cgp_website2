@@ -1,0 +1,159 @@
+---
+title: janesR
+author: Chad Peltier
+date: '2020-11-02'
+slug: janesr
+categories:
+  - Packages
+tags:
+  - Packages
+  - Defense
+---
+
+<link href="/rmarkdown-libs/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/anchor-sections/anchor-sections.js"></script>
+
+
+<p>I developed an R package to more easily interact with the Janes API, called janesR (<a href="https://github.com/cgpeltier/janesR">available here</a>).</p>
+<p>It currently provides functions for querying 17 different endpoints and returning tibbles ready for analysis and/or joining with other data. It also provides functions for exporting data from the same 17 endpoints into XML or JSON, if those formats are preferable.</p>
+<p>Here’s how it works. First the full function, which I’ll then break down into each part:</p>
+<pre class="r"><code>get_janes_bases &lt;- function(country = NULL){
+    page_range &lt;- get_page_range(country = country, endpoint = &quot;bases&quot;)
+    
+    bases &lt;- map(page_range, ~ get_janes_info(x = .x, country = country,
+                                             endpoint = &quot;bases&quot;)) %&gt;%
+        bind_rows()
+    
+    bases_data &lt;- map(bases$url, get_janes_data)
+
+    bases_data %&gt;%
+        tibble() %&gt;%
+        unnest_wider(&quot;.&quot;) %&gt;%
+        unnest_wider(&quot;.&quot;) %&gt;%
+        select(-any_of(&quot;...1&quot;)) %&gt;%
+        conditional_unnest_wider(&quot;installation&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operators&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operator&quot;) %&gt;%
+        select(-&quot;installationId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorCountry&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runways&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runway&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOrientation&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOreientationOpposed&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwaySurface&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayName&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayStatus&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayCenterline&quot;) %&gt;%
+        conditional_unnest_wider(&quot;synonyms&quot;) %&gt;%
+        conditional_unnest_wider(&quot;synonym&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;installationId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorServiceType&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorRegion&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorCountryISO&quot;) %&gt;%
+        conditional_unnest_wider(&quot;location&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayLengthMetres&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayLengthFeet&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOrientationOpposing&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayDirection1Name&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayDirection2Name&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayStaus&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayWidthMetres&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayWidthFeet&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayPCN&quot;) %&gt;%
+        janitor::clean_names()
+
+
+}</code></pre>
+<p>The get_janes_bases function, for example, first get the number of pages (with 1000 results per page) needed for the endpoint. Then it maps over the sequence of pages in the page range to pull the results from the bases endpoint, which includes basic information like the base ID and the URL for the data about the base. All of the pages are then bound together.</p>
+<pre class="r"><code>    page_range &lt;- get_page_range(country = country, endpoint = &quot;bases&quot;)
+
+    bases &lt;- map(page_range, ~ get_janes_info(x = .x, country = country,
+                                             endpoint = &quot;bases&quot;)) %&gt;%
+        bind_rows()</code></pre>
+<p>The get_janes_info function, an internal function used across the janesR endpoint functions, contains the following. It builds the url for the GET call, adds authorization headers, and returns the result from JSON.</p>
+<pre class="r"><code>if(endpoint %in% c(&quot;references&quot;, &quot;news&quot;)){
+            endpoint2 &lt;- endpoint
+    }else{
+      endpoint2 &lt;- paste0(&quot;data/&quot;, endpoint)}
+
+    countries &lt;- paste0(country, collapse = &quot;)%3Cor%3Ecountryiso(&quot;)
+
+    request &lt;- GET(url = paste0(&quot;https://developer.janes.com/api/v1/&quot;,
+                                endpoint2, &quot;?q=&quot;,
+                                query,
+                                &quot;&amp;f=countryiso(&quot;,
+                                countries,
+                                &quot;)%3Cand%3Emarket(&quot;,
+                                str_replace_all(market, &quot; &quot;, &quot;%20&quot;),
+                                &quot;)%3Cand%3EENDUSERCOUNTRY(&quot;,
+                                str_replace_all(end_user_country,&quot; &quot;, &quot;%20&quot;),
+                                &quot;)%3Cand%3ESOURCE_TYPE(&quot;,
+                                str_replace_all(event_type, &quot; &quot;, &quot;%20&quot;),
+                                &quot;)%3Cand%3EPOST_DATE(&quot;,
+                                str_replace_all(post_date, &quot;::&quot;, &quot;%3A%3A&quot;),
+                                &quot;)%3Cand%3Estart_Date(&quot;,
+                                str_replace_all(start_date, &quot;::&quot;, &quot;%3A%3A&quot;),
+                                &quot;)%3cand%3Ebranch(&quot;,
+                                str_replace_all(branch, &quot; &quot;, &quot;%20&quot;),
+                                &quot;)%3Cand%3EoperatorForce(&quot;,
+                                stringr::str_replace_all(operator_force, &quot; &quot;, &quot;%20&quot;),
+                                &quot;)%3cand%3etype(&quot;,
+                                type,
+                                &quot;)%3Cand%3Eenvironment(&quot;,
+                                environment,
+                                &quot;)&amp;num=1000&quot;, &quot;&amp;pg=&quot;, x),
+                   add_headers(Authorization = Sys.getenv(&quot;JANES_KEY&quot;)))
+    response &lt;- content(request, as = &quot;text&quot;, encoding = &quot;UTF-8&quot;)
+    fromJSON(response)[[&quot;results&quot;]]</code></pre>
+<p>From the resulting data frame, called “bases”, we map over the URLs returned using another function, called get_janes_data, to extract all of actual base metadata for each base ID from the bases/{ID} endpoint.</p>
+<pre class="r"><code>get_janes_data &lt;- function(x){
+    request &lt;- GET(url = x, add_headers(Authorization = Sys.getenv(&quot;JANES_KEY&quot;)))
+    response &lt;- content(request, as = &quot;text&quot;)
+    response %&gt;%
+        fromJSON(simplifyDataFrame = TRUE) %&gt;%
+        tibble()
+
+}
+
+
+bases_data &lt;- map(bases$url, get_janes_data)</code></pre>
+<p>Finally, we can unnest all of the list columns in the bases_data data frame. Because certain columns may not be returned if they aren’t in your particular search, this step uses two internal functions, which conditionally unnest_wider depending on whether the columns are in the data frame. Thanks to SO user <a href="https://stackoverflow.com/questions/63291143/unnest-wider-only-if-columns-exists-in-r">Alexlok who helped with this</a>!</p>
+<pre class="r"><code>bases_data %&gt;%
+        tibble() %&gt;%
+        rename(base = &quot;.&quot;) %&gt;%
+        unnest_wider(base) %&gt;%
+        rename(base = &quot;.&quot;) %&gt;%
+        unnest_wider(base) %&gt;%
+        select(-any_of(&quot;...1&quot;)) %&gt;%
+        conditional_unnest_wider(&quot;installation&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operators&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operator&quot;) %&gt;%
+        select(-&quot;installationId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorCountry&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runways&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runway&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOrientation&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOreientationOpposed&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwaySurface&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayName&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayStatus&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayCenterline&quot;) %&gt;%
+        conditional_unnest_wider(&quot;synonyms&quot;) %&gt;%
+        conditional_unnest_wider(&quot;synonym&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;installationId&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorServiceType&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorRegion&quot;) %&gt;%
+        conditional_unnest_wider(&quot;operatorCountryISO&quot;) %&gt;%
+        conditional_unnest_wider(&quot;location&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayLengthMetres&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayLengthFeet&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayOrientationOpposing&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayDirection1Name&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayDirection2Name&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayStaus&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayWidthMetres&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayWidthFeet&quot;) %&gt;%
+        conditional_unnest_wider(&quot;runwayPCN&quot;) %&gt;%
+        janitor::clean_names()</code></pre>

@@ -1,0 +1,318 @@
+---
+title: Analyzing the Fleet Foxes' Music in R
+author: Chad Peltier
+date: '2020-11-02'
+slug: analyzing-the-fleet-foxes-music-in-r
+categories:
+  - NLP
+  - R
+tags: 
+  - NLP
+  - Music
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+This project is designed to compare Fleet Foxes' four albums. It uses the spotifyr and geniusr packages to download song features and lyrics, allowing for text analysis of lyrics for each track. I'll use various NLP tools, including sentiment analysis and LDA to provide unsupervised classification of tracks on each album. 
+
+```{r message=FALSE}
+library(tidyverse)
+library(tidytext)
+library(spotifyr)
+library(geniusr)
+library(httr)
+library(jsonlite)
+library(tidytext)
+library(topicmodels)
+library(tidymodels)
+library(ggridges)
+library(kableExtra)
+library(textrecipes)
+
+```
+
+# Pull data
+Here we pull data from Spotify, keeping just the four main albums in Spotify: *Fleet Foxes*, *Helplessness Blues*, *Crack-Up*, and *Shore*, which was just released in October 2020.
+
+The spotifyr package makes this easy, allowing us to search by artist name and then just filter down to the albums we're looking for. I also do a little bit of cleaning for the join with the geniusr data. Because we have to join by track name, I create a simplified track name column just for the join that converts strings to lower and removes punctuation.  
+
+```{r}
+## Spotify data
+ff <- get_artist_audio_features("fleet foxes") %>%
+    select(1:3, track_name, 6, 9:20, 32, 36:39) %>%
+    relocate(artist_name, track_name, album_name)
+
+ff2 <- ff %>%
+    filter(!album_id %in% c("2m7zr13OtqMWyPkO32WRo0", "5GRnydamKvIeG46dycID6v",
+                            "6XzZ5pg9buAKNYg293KOQ8", "62miIQWlOO88YmupzmUNGJ",
+                            "6ou9sQOsIY5xIIX417L3ud", "7LKzVm90JnhNMPF6qX21fS",
+                            "7D0rCfJjFj9x0bdgRKtvzb")) %>%
+    mutate(track_name_clean = str_to_lower(track_name),
+           track_name_clean = str_replace_all(track_name_clean, "[:punct:]", " "))
+
+
+```
+
+The code chunk below uses the geniusr package to pull lyrics. First we need to do a text search for the artist ID, then we can get a dataframe of songs using that ID. From there, we can purrr across song IDs to get the lyrics. Because the lyrics are reported in the geniusr package by line, I then use group_by, summarize, and paste0 with the collapse argument to collapse all lines of lyrics into a single row per song. I then do the same song name cleaning to join with the Spotify data. 
+
+```{r}
+## Genus lyrics data
+ff_id <- search_artist("Fleet Foxes") %>%
+    pull(artist_id)
+
+ff_songs <- get_artist_songs_df(ff_id)
+
+ff_lyrics <- map(ff_songs$song_id, get_lyrics_id) %>%
+    bind_rows()
+
+ff_lyrics2 <- ff_lyrics %>%
+    select(song_name, line, song_id) %>%
+    group_by(song_id, song_name) %>%
+    dplyr::summarize(line = paste0(line, collapse = " ")) %>%
+    filter(!str_detect(song_name, "Booklet")) %>%
+    mutate(song_name_clean = str_to_lower(song_name),
+           song_name_clean = str_replace_all(song_name_clean, "[:punct:]", " "))
+
+## Alternative way to get lyrics using the genius package
+# albums <- c("Shore", "Crack Up", "Helplessness Blues", "Fleet Foxes")
+# ff_lyrics <- map(albums, ~genius_album(artist = "Fleet Foxes", album = .)) %>%
+#     bind_rows()
+```
+
+Finally, we can combine the song features and lyrics into a single data frame.
+
+```{r }
+## Combine lyrics and song features
+
+album_order <- c("Shore",  "Crack-Up", "Helplessness Blues",  "Fleet Foxes")
+
+
+ff_combined <- ff2 %>%
+    left_join(ff_lyrics2, by = c("track_name_clean" = "song_name_clean")) %>%
+    select(-track_name_clean, song_name) %>%
+    filter(!is.na(line)) %>%
+    mutate(album_name = factor(album_name, levels = album_order)) 
+
+```
+
+
+
+# Album analysis
+First, we'll compare the how the various song audio features tracked by Spotify (danceability, energy, valence, etc.) change across the four albums. 
+
+My overall expectation is that the Fleet Foxes and Helplessness Blues albums are fairly similar, Crack-Up has a much more dissonance and lower valence, and Shore has higher valence. 
+
+```{r message=FALSE}
+
+
+ff_combined %>%
+    pivot_longer(danceability:tempo) %>% 
+    filter(!name %in% c("mode", "liveness")) %>% 
+    ggplot(aes(x = value, y = album_name, fill = album_name)) +
+        geom_density_ridges() +
+        facet_wrap(~ name, scales = "free_x") + 
+        theme_classic() +
+        theme(legend.position = "none")
+
+```
+
+
+```{r eval=FALSE}
+
+# This produces multiple larger charts (one for each track feature) instead
+
+vars <- ff_combined %>%
+    select(danceability:tempo) %>%
+    colnames()
+
+map(vars, ~ ff_combined %>%
+    mutate(album_name = factor(album_name, levels = album_order)) %>%
+    ggplot(aes(x = .x, y = album_name, fill = album_name)) +
+        geom_density_ridges() +
+        theme_classic() +
+        theme(legend.position = "none") +
+        labs(x = NULL, y = "Album"))
+```
+
+
+Some overall takeaways:
+
+* Shore has a more uniform distribution of most song features, but especially loudness. 
+* Crack-Up is also distinctive in its distribution of keys, which has a much more concentrated (and higher!) distribution than the other albums. 
+* As expected, Crack-Up also sticks out in its valence distribution, with a uni-modal, low distribution. Shore is bi-modal, with concentrations of happier and sadder-sounding songs. Overall, Crack-Up is less sonically varied than the other three albums by key, energy, loudness, and valence -- which is especially interesting because it was a fairly significant departure from the first two albums and is very musically varied. For example, [NME described it](https://www.nme.com/reviews/fleet-foxes-crack-up-review-2087403) as "Melodies bleed into one another both between tracks and within them, making the listening experience feel almost classical."
+* Most songs' tempos are a little slower on Shore than the previous two albums, though there is a second peak of higher-tempo songs. The first album, Fleet Foxes, stands out in this regard. 
+* Danceability is interesting. Spotify describes danceability as "how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity", with 1 being most danceable. It is interesting that Fleet Foxes and Shore have the most danceable songs... especially when I wouldn't really say that any of their songs are all that danceable! Given that the album's tempo distribution isn't very high, that suggests its relatively higher danceability comes from tracks' beat strength and rhythm stability. 
+
+
+# Tracks
+The code below analyzes individual tracks by various track features. 
+
+```{r}
+  
+ff_combined %>%
+    arrange(desc(valence)) %>%
+    #slice_head(n = 20) %>%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %>%
+    ggplot(aes(y = track_name, x = valence, color = album_name)) +
+    geom_segment(aes(x = 0, xend = valence, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = "Valence") + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))
+  
+
+ff_combined %>%
+    arrange(desc(danceability)) %>%
+    #slice_head(n = 20) %>%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %>%
+    ggplot(aes(y = track_name, x = danceability, color = album_name)) +
+    geom_segment(aes(x = 0, xend = danceability, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = "danceability") + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))
+
+
+ff_combined %>%
+    arrange(desc(energy)) %>%
+    #slice_head(n = 20) %>%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %>%
+    ggplot(aes(y = track_name, x = energy, color = album_name)) +
+    geom_segment(aes(x = 0, xend = energy, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = "energy") + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))
+
+
+ff_combined %>%
+    ggplot(aes(x = energy, y = valence, label = track_name)) + 
+    geom_point(color = "#E32636", alpha = 0.7, size = 2) + 
+    ggrepel::geom_text_repel(size = 3, data = subset(ff_combined, energy > .55 | energy < .38 | valence > .5)) +
+    theme_classic() 
+    
+
+
+```
+
+* Battery Kinzie is by far the highest valence song. I'm also not surprised to see Young Man's Game and Lorelai in the top 6. The Plains / Bitter Dancer and Fool's Errand are fitting for the lowest valence tracks. And 3 of the bottom 6 valence songs are on Crack-Up.
+* 5 of the top 6 (and 7 of 9) highest energy songs are all on Shore! 
+* In general there's a positive relationship between energy and valence, although it appears to be most pronounced after energy rises above 0.4 or so. Lower energy songs are all relatively low valence, but a mid-low energy song (like The Plains / Bitter Dancer or Sun it Rises) isn't necessarily happier-sounding than an even lower energy song like Oliver James. But after 0.6 energy, most songs are happier sounding. 
+
+# Tracks and Sentiment Analysis
+Next we can bring in some sentiments from the nrc data to compare whether valence aligns with positive vs. negative lyrics on individual tracks. Do some songs sound happy but have negative lyrics, or vice versa?
+
+```{r}
+
+ff_sentiment <- ff_combined %>% 
+    unnest_tokens(word, line) %>%
+    select(album_name, track_name, word) %>%
+    anti_join(stop_words) %>%
+    inner_join(get_sentiments("nrc")) %>%
+    distinct(word, track_name, .keep_all = TRUE) %>%
+    mutate(sentiment = if_else(sentiment %in% c("anger", "fear", "negative", 
+                                                "disgust", "sadness"), 
+                               "negative", "positive")) %>% 
+    count(track_name, sentiment) %>%
+    group_by(track_name) %>%
+    mutate(prop = round(n/sum(n), 2)) %>%
+    filter(sentiment == "negative") %>%
+    left_join(ff_combined %>% select(track_name, valence))
+
+ff_sentiment %>%
+    ggplot(aes(prop, valence, label = track_name)) + 
+    geom_point(color = "#E32636", alpha = 0.7, size = 2) + 
+    ggrepel::geom_text_repel(size = 3, data = subset(ff_sentiment, valence > .25 | prop > .6 | prop < .4)) +
+    theme_classic() +
+    labs(x = "% Negative Emotions", y = "Valence")
+
+
+
+```
+
+Some of the sentiment analysis is tough because there aren't a ton of words per song that have a sentiment in the nrc lexicon. However, it is interesting that many of the top valence songs, like "Battery Kinzie", "White Winter Hymnal", "Lorelai", and "Can I Believe You" all have 50% or less positive emotions. That's not surprising for Can I Believe You, which sounds upbeat but is about relationship trust issues. 
+
+Overall the relationship between a song's negative lyrics and valence is complicated. Some songs, like "On Another Ocean (January / June)" are both negative and sad-sounding. However, other songs, like "Your Protector" and "Oliver James" sound fairly sad, but have mostly happy lyrics (at least for the words in which there was a corresponding nrc sentiment). 
+
+
+# LDA
+Finally, we can do some LDA for unsupervised classification of songs into 5 topics. 
+
+```{r}
+ff_dtm <- ff_combined %>%
+    rename(text = line) %>% 
+    unnest_tokens(word, text) %>%
+    anti_join(stop_words, by = "word") %>%
+    count(track_name, word, sort = TRUE) %>%
+    cast_dtm(track_name, word, n)
+
+ff_lda <- LDA(ff_dtm, k = 3, control = list(seed = 123))
+
+
+
+ff_topics <- ff_lda %>%
+    tidy(matrix = "beta")
+
+
+ff_top_terms <- ff_topics %>%
+    group_by(topic) %>%
+    top_n(10, abs(beta)) %>%
+    ungroup() %>%
+    arrange(topic, desc(beta))
+
+
+ff_top_terms %>%
+    mutate(term = reorder_within(term, beta, topic)) %>%
+    ggplot(aes(beta, term, fill = factor(topic))) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~ topic, scales = "free") +
+    scale_y_reordered()
+
+
+
+```
+
+So, our LDA algorithm found the following topics with k = 3:
+
+1. Songs related to **night and the morning**. These are time-related, but the top words associated with this topic are specific to the morning, night, and dreams. 
+2. Topic 2 is also time-focused, but the passage of time in a bigger sense -- related to **death and existential concerns**. Here, the devil (another death-related) is important, as is the color red ("With scarves of red tied 'round their throats... Red as strawberries in the summertime" from "White Winter Hymnal"). This topic might be exemplified by "Oh, devil walk by, oh, devil walk by (I never want to die, I never want to die)" from "Quiet Air / Gioia." That song has the third-highest gamma within the seocnd topic.
+3. The third topic is a little more **pastoral / nature-focused** than the other two, although nature, time, and existential concerns are kind of universal Fleet Foxes themes. This includes words like light, ocean, rising, and dawn.
+
+
+Seeing these 3 topics, it's clear that nature, time, light and darkness all factor heavily across all Fleet Foxes lyrics. 
+
+Finally, we can classify each song into one of the above topics.
+
+```{r}
+
+ff_lda %>%
+    tidy(matrix = "gamma") %>%
+    group_by(document) %>%
+    top_n(n = 1, wt = gamma) %>%
+    arrange(topic) %>%
+    kbl(booktabs = TRUE) %>%
+    kable_styling(bootstrap_options = "striped") %>%
+    kable_paper()
+
+```
+
+
+
+
+

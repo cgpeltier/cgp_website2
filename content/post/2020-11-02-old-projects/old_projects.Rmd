@@ -1,0 +1,45 @@
+---
+title: Old Projects
+author: Chad Peltier
+date: '2020-11-02'
+slug: old-projects
+categories: []
+tags: []
+---
+
+I created this website in early November, 2020. Rather than re-post all of the data science projects from [my previous portfolio](https://cgpeltier.github.io/), I'll instead link to them all here in this post. 
+
+I'm planning on updating a few of these projects. Any updates will be posted as new pages on my new blogdown-powered website instead. 
+
+# Modeling Emerging Technologies in the FY2021 RDT&E Budget (Including PDF scraping)
+[This project](https://github.com/cgpeltier/Defense/blob/master/dod_budget_scraping_fy2021.md) scrapes data from the FY2021 RDT&E defense budgets (the PEDS documents) and then classifies R&D programs at the Accomplishment / Planned Programs level into various types of emerging technologies. It was the basis for [this article I wrote at War on the Rocks in February 2020](https://warontherocks.com/2020/03/put-your-money-where-your-strategy-is-using-machine-learning-to-analyze-the-pentagon-budget/). I've done a good bit of subsequent work on modeling the defense budget, which I'll hopefully be able to share soon. 
+
+# Modeling Ship Range
+[This project](https://github.com/cgpeltier/Defense/blob/master/Modeling-Ship-Displacement.md) uses Janes Fighting Ships data to model unknown ship specifications -- in this case, a ship's range. This came directly from a consulting project I was a part of where we were tasked with estimating a number of specifications that were not available through open sources. 
+
+# Mapping U.S. and Chinese Order of Battle
+While the maps [in this project](https://github.com/cgpeltier/Defense/blob/master/orbats.md) are far from beautiful, this project was designed to pull data from the Janes API and practice iterating map creation on U.S. and Chinese ORBATs using simple features (the sf package). Because of the locations of some of the bases (right on the country border, but not within the border), I also use a spatial join to practice mapping the U.S.'s overseas military bases. 
+
+# Scrape U.S. DoD Contract Awards
+[Scrape data from the U.S. DoD contract awards website](https://github.com/cgpeltier/Defense/blob/master/dod_contract_award_scraping.md) back to 2014 to create a dataset of all publicly-announced defense contracts, including contract recipient, description, awarding agency, and funding amount. 
+
+# Comparing U.S. and Chinese R&D investments
+This [simple project](https://github.com/cgpeltier/Defense/blob/master/rd_investment_project.md) compares U.S. and Chinese R&D investments. 
+
+# Republicans with Positive Views of Democratic Presidential Candidates
+I love the level of detail in the UCLA / Democracy Fund Nationscape polling data, and was eager to take a look at it. Because of intense political polarization, I was interested in who the self-identifying Republicans were that nevertheless had positive views of the Democratic presidential candidates.[This project](https://github.com/cgpeltier/Public-Policy-Politics/blob/master/repub_views.md) compares three models to predict which Republicans would have favorable views of Democrats.
+
+# Analyzing Elizabeth Warren's Presidential Campaign
+Again using the UCLA Nationscape data, [I look at voters' changing opinions on Elizabeth Warren](https://github.com/cgpeltier/Public-Policy-Politics/blob/master/nationscape.md). There are countless things to think about from this data, and I'd love to take a look at this again. 
+
+# Analyzing the 2020 Democratic Presidential Primary Debates
+I [scraped transcript data on all of the (seemingly) 1000s of Democratic debates](https://github.com/cgpeltier/Public-Policy-Politics/blob/master/dem_foreignpolicy_preferences_transcripts.md) to analyze who said what. This will actually be one of my next posts -- a deeper dive into modeling who said what in the debates and what they talked about. 
+
+# Analyzing the 2018 Georgia Gubernatorial Election
+This project uses Census data to analyze the [2018 Georgia gubernatorial election](https://github.com/cgpeltier/Public-Policy-Politics/blob/master/ga_governor2018.md) in which Stacy Abrams narrowly lost to Brian Kemp. 
+
+# How College Football Players Change Position 
+For a long time I wrote about college football at sites like SB Nation and Football Outsiders. This was one of my last projects before I stopped blogging about sports, which looked at [how players change positions](https://github.com/cgpeltier/CFB_EPA/blob/master/roster_position_project.md) from high school to college. 
+
+# StuRgill
+Using Spotify data I [analyze Sturgill Simpson's music](https://github.com/cgpeltier/Music/blob/master/stuRgill.md) in comparison with some other outlaw country greats. I'm also planning on updating this post shortly! 

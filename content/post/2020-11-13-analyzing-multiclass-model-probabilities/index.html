@@ -1,0 +1,147 @@
+---
+title: 'Analyzing Multiclass Classification Model Probabilities '
+author: Chad Peltier
+date: '2020-11-13'
+slug: analyzing-multiclass-model-probabilities
+categories:
+  - R
+tags:
+  - Modeling
+---
+
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+
+
+<p>This project is part of the work I’m doing with DataRobot on classifying DoD RDT&amp;E budget programs.</p>
+<p>For this part of the project, I worked with Sarah Khatry to label 600 RDT&amp;E programs based on their warfighting function. We then used DataRobot’s Auto ML to run multiclass classification models for the entire dataset we were looking at (the model used program and project text descriptions for the classification). The code below analyzes the resulting class probabilities from that model.</p>
+<p>All of the code below is my attempt to replicate the work that Sarah had done in Python, but in R.</p>
+<pre class="r"><code>library(tidyverse)
+library(janitor)
+library(Rtsne)
+
+
+warfighting &lt;- read_csv(&quot;C:\\Users\\chad.peltier\\Downloads\\warfighting_function_predictions.csv&quot;) %&gt;%
+    clean_names()
+
+warfighting %&gt;%
+    head(5)</code></pre>
+<pre><code>## # A tibble: 5 x 12
+##   original_index      c2   fires information intelligence movement_manuev~
+##            &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;       &lt;dbl&gt;        &lt;dbl&gt;            &lt;dbl&gt;
+## 1             48 3.18e-2 5.77e-3    0.0467      0.00752          0.895    
+## 2             96 6.81e-2 4.71e-2    0.0234      0.347            0.0545   
+## 3            133 9.98e-1 1.62e-4    0.000158    0.000393         0.000611 
+## 4            137 9.98e-1 2.46e-4    0.000241    0.000760         0.0000739
+## 5            172 1.11e-4 9.10e-5    0.000082    0.0000348        0.999    
+## # ... with 6 more variables: protection &lt;dbl&gt;, sustainment &lt;dbl&gt;,
+## #   wargaming_m_s &lt;dbl&gt;, top_predicted_war_func &lt;chr&gt;, func_list &lt;chr&gt;,
+## #   is_multi &lt;dbl&gt;</code></pre>
+<p>The dataframe is pretty straightforward. It contains the probabilities for each class, the top predicted class, a list of classes above a 17% threshold, and a binary is_multi column for programs with multiple probabilities over 17%. The latter three columns were all created by Sarah.</p>
+<p>The is_multi is a key part of our analysis. The client we are working with had originally labeled some training data with a “Multi” class for programs that fit into multiple categories. When Sarah and I re-labeled a new set of training data, we omitted the Multi class because of poor model performance on the original training data. Instead, we just labeled each program with a single category and trusted the model to determine the best option.</p>
+<div id="identifying-multi-by-difference" class="section level1">
+<h1>Identifying “Multi” by Difference</h1>
+<p>This part of our analysis is intended to identify which programs are actually multi. We thought about two general strategies:</p>
+<ol style="list-style-type: decimal">
+<li>Any program with multiple class probabilities over a certain threshold (we used .17 after testing different thresholds) would be tagged as multi</li>
+<li>Look at the difference between the top two class probabilities and tag any programs with a difference below a certain threshold as multi</li>
+</ol>
+<p>Sarah did the first strategy previously; the code below is to test various difference thresholds for the second strategy. In the code below, warfighting_summary tests the second strategy (difference), while warfighting_summary2 essentially recreates the work that Sarah did, by overall probability threshold.</p>
+<pre class="r"><code>## By difference 
+
+warfighting_summary &lt;- warfighting %&gt;%
+    pivot_longer(cols = 2:9) %&gt;%
+    group_by(original_index) %&gt;%
+    arrange(desc(value)) %&gt;% 
+    summarize(dif_top2 = max(value) - nth(value,2)) %&gt;%
+    arrange(dif_top2)
+
+warfighting_summary %&gt;%
+    head(5)</code></pre>
+<pre><code>## # A tibble: 5 x 2
+##   original_index dif_top2
+##            &lt;dbl&gt;    &lt;dbl&gt;
+## 1          21231 0.000780
+## 2          19519 0.00503 
+## 3           9783 0.00937 
+## 4          14911 0.00966 
+## 5          30457 0.0109</code></pre>
+<pre class="r"><code>## By probability threshold
+
+warfighting_summary2 &lt;- warfighting %&gt;%
+    select(1:9) %&gt;%
+    pivot_longer(cols = 2:9) %&gt;%
+    group_by(original_index) %&gt;%
+    arrange(original_index, desc(value)) </code></pre>
+<p>The next step was to test various thresholds for both strategies. For the warfighting_summary dataframe, the thresholds will be the difference between the top two categories. Purrr::map() allows us to iterate across multiple threshold values.</p>
+<pre class="r"><code>sequence &lt;- seq(from = .02, to = 0.4, by = 0.02)
+
+
+map(sequence, ~ summarise(warfighting_summary, n = sum(dif_top2 &lt; .x)) %&gt;% mutate(difference_threshold = .x)) %&gt;%
+    bind_rows() %&gt;%
+    ggplot(aes(difference_threshold, n)) +
+    geom_point()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-3-1.png" width="672" /></p>
+<pre class="r"><code>map(sequence, ~ summarise(warfighting_summary2, n = sum(value &gt; .x)) %&gt;% filter(n &gt; 1) %&gt;% mutate(threshold = .x) %&gt;% count(threshold)) %&gt;%
+    bind_rows() %&gt;%
+    ggplot(aes(threshold, n)) +
+    geom_point()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-3-2.png" width="672" /></p>
+<p>For warfighting_summary, the number of programs tagged as multi increases as we raise the threshold. For warfighting_summary2, the number of multi programs falls as we raise the threshold. In the training data we were originally given, around 20% of the data was tagged as multi, which is why we settled around a threshold value of .17 to get a similar percentage in the final data.</p>
+<p>As you can see, going by difference threshold is more restrictive – it creates far fewer multis as the probability threshold route.</p>
+<p>Next, we can also pull out the warfighting functions that have a difference of 17% or less and add them back into the original dataframe.</p>
+<pre class="r"><code>warfighting_dif &lt;- warfighting %&gt;%
+    select(1:9) %&gt;%
+    pivot_longer(cols = 2:9) %&gt;%
+    group_by(original_index) %&gt;%
+    arrange(original_index, desc(value)) %&gt;%
+    mutate(dif = max(value) - value) %&gt;%
+    filter(dif &lt;= .17) %&gt;%
+    summarize(funcs_list_dif = paste(name, collapse = &quot;, &quot;))
+
+
+warfighting_dif %&gt;%
+    head(5)</code></pre>
+<pre><code>## # A tibble: 5 x 2
+##   original_index funcs_list_dif             
+##            &lt;dbl&gt; &lt;chr&gt;                      
+## 1             48 movement_manuever          
+## 2             96 wargaming_m_s, intelligence
+## 3            133 c2                         
+## 4            137 c2                         
+## 5            172 movement_manuever</code></pre>
+<pre class="r"><code>## Re-combine with warfighting df
+warfighting2 &lt;- warfighting %&gt;%
+    left_join(warfighting_dif) %&gt;%
+    mutate(is_multi_dif = if_else(str_detect(funcs_list_dif, &quot;,&quot;), 1,0))</code></pre>
+</div>
+<div id="tsne" class="section level1">
+<h1>tSNE</h1>
+<p>Finally, Sarah and Ted (also from DataRobot) tried another method for identifying multis by using tSNE to look for patterns in the data. The code below replicates their approach, but in R and comparing with the difference threshold method from above.</p>
+<pre class="r"><code>library(Rtsne)
+
+wf_tsne &lt;- warfighting2 %&gt;%
+    select(2:9) %&gt;%
+    Rtsne(check_duplicates = FALSE, dims = 2) 
+
+
+
+wf_tsne2 &lt;- wf_tsne$Y %&gt;%
+    as.data.frame() %&gt;%
+    rename(x = V1, y = V2) %&gt;%
+    bind_cols(warfighting2 %&gt;% select(top_predicted_war_func, is_multi)) %&gt;%
+    mutate(top_predicted_war_func = as.factor(top_predicted_war_func),
+           is_multi = as.factor(is_multi))
+
+
+wf_tsne2 %&gt;%
+    ggplot(aes(x = x, y = y, color = top_predicted_war_func)) +
+    geom_point(aes(alpha= 0.4)) </code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<pre class="r"><code>wf_tsne2 %&gt;%
+    ggplot(aes(x = x, y = y, color = is_multi)) +
+    geom_point(aes(alpha= 0.4)) </code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-2.png" width="672" /></p>
+<p>The two charts above are really interesting. As the first shows, the intersection of the warfighting function groups near the cernter of the chart shows which programs might have been challenging for the original model to classify. For example, some intellignce programs are nearly overlapping with protection (likely cyber protection programs), C2, and Movement and Manuever (probably unmanned systems with program descriptions that mention sensor development).</p>
+<p>The next chart shows the same points instead colored by whether the were identified as multi or not by our criteria above. The tSNE plot reinforces the validity of the multi category because the points at the center of the chart – where the points overlap – are where the vast majority of the multis are. Further, for the categories that are far from the center, like wargaming/M&amp;S, the points closest to the center there are also colored as multi.</p>
+</div>

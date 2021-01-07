@@ -1,0 +1,198 @@
+---
+title: janesR
+author: Chad Peltier
+date: '2020-11-02'
+slug: janesr
+categories:
+  - Packages
+tags:
+  - Packages
+  - Defense
+---
+
+
+
+I developed an R package to more easily interact with the Janes API, called janesR ([available here](https://github.com/cgpeltier/janesR)). 
+
+It currently provides functions for querying 17 different endpoints and returning tibbles ready for analysis and/or joining with other data. It also provides functions for exporting data from the same 17 endpoints into XML or JSON, if those formats are preferable. 
+
+Here's how it works. First the full function, which I'll then break down into each part:
+
+```{r eval=FALSE}
+
+get_janes_bases <- function(country = NULL){
+    page_range <- get_page_range(country = country, endpoint = "bases")
+    
+    bases <- map(page_range, ~ get_janes_info(x = .x, country = country,
+                                             endpoint = "bases")) %>%
+        bind_rows()
+    
+    bases_data <- map(bases$url, get_janes_data)
+
+    bases_data %>%
+        tibble() %>%
+        unnest_wider(".") %>%
+        unnest_wider(".") %>%
+        select(-any_of("...1")) %>%
+        conditional_unnest_wider("installation") %>%
+        conditional_unnest_wider("operators") %>%
+        conditional_unnest_wider("operator") %>%
+        select(-"installationId") %>%
+        conditional_unnest_wider("operatorCountry") %>%
+        conditional_unnest_wider("runways") %>%
+        conditional_unnest_wider("runway") %>%
+        conditional_unnest_wider("runwayOrientation") %>%
+        conditional_unnest_wider("runwayOreientationOpposed") %>%
+        conditional_unnest_wider("runwaySurface") %>%
+        conditional_unnest_wider("runwayName") %>%
+        conditional_unnest_wider("runwayStatus") %>%
+        conditional_unnest_wider("runwayCenterline") %>%
+        conditional_unnest_wider("synonyms") %>%
+        conditional_unnest_wider("synonym") %>%
+        conditional_unnest_wider("operatorId") %>%
+        conditional_unnest_wider("installationId") %>%
+        conditional_unnest_wider("operatorServiceType") %>%
+        conditional_unnest_wider("operatorRegion") %>%
+        conditional_unnest_wider("operatorCountryISO") %>%
+        conditional_unnest_wider("location") %>%
+        conditional_unnest_wider("runwayLengthMetres") %>%
+        conditional_unnest_wider("runwayLengthFeet") %>%
+        conditional_unnest_wider("runwayOrientationOpposing") %>%
+        conditional_unnest_wider("runwayDirection1Name") %>%
+        conditional_unnest_wider("runwayDirection2Name") %>%
+        conditional_unnest_wider("runwayStaus") %>%
+        conditional_unnest_wider("runwayWidthMetres") %>%
+        conditional_unnest_wider("runwayWidthFeet") %>%
+        conditional_unnest_wider("runwayPCN") %>%
+        janitor::clean_names()
+
+
+}
+
+```
+
+
+The get_janes_bases function, for example, first get the number of pages (with 1000 results per page) needed for the endpoint. Then it maps over the sequence of pages in the page range to pull the results from the bases endpoint, which includes basic information like the base ID and the URL for the data about the base. All of the pages are then bound together. 
+
+```{r eval=FALSE}
+
+
+    page_range <- get_page_range(country = country, endpoint = "bases")
+
+    bases <- map(page_range, ~ get_janes_info(x = .x, country = country,
+                                             endpoint = "bases")) %>%
+        bind_rows()
+
+```
+
+
+The get_janes_info function, an internal function used across the janesR endpoint functions, contains the following. It builds the url for the GET call, adds authorization headers, and returns the result from JSON. 
+
+```{r eval=FALSE}
+
+if(endpoint %in% c("references", "news")){
+            endpoint2 <- endpoint
+    }else{
+      endpoint2 <- paste0("data/", endpoint)}
+
+
+
+    countries <- paste0(country, collapse = ")%3Cor%3Ecountryiso(")
+
+    request <- GET(url = paste0("https://developer.janes.com/api/v1/",
+                                endpoint2, "?q=",
+                                query,
+                                "&f=countryiso(",
+                                countries,
+                                ")%3Cand%3Emarket(",
+                                str_replace_all(market, " ", "%20"),
+                                ")%3Cand%3EENDUSERCOUNTRY(",
+                                str_replace_all(end_user_country," ", "%20"),
+                                ")%3Cand%3ESOURCE_TYPE(",
+                                str_replace_all(event_type, " ", "%20"),
+                                ")%3Cand%3EPOST_DATE(",
+                                str_replace_all(post_date, "::", "%3A%3A"),
+                                ")%3Cand%3Estart_Date(",
+                                str_replace_all(start_date, "::", "%3A%3A"),
+                                ")%3cand%3Ebranch(",
+                                str_replace_all(branch, " ", "%20"),
+                                ")%3Cand%3EoperatorForce(",
+                                stringr::str_replace_all(operator_force, " ", "%20"),
+                                ")%3cand%3etype(",
+                                type,
+                                ")%3Cand%3Eenvironment(",
+                                environment,
+                                ")&num=1000", "&pg=", x),
+                   add_headers(Authorization = Sys.getenv("JANES_KEY")))
+    response <- content(request, as = "text", encoding = "UTF-8")
+    fromJSON(response)[["results"]]
+
+```
+
+
+From the resulting data frame, called "bases", we map over the URLs returned using another function, called get_janes_data, to extract all of actual base metadata for each base ID from the bases/{ID} endpoint.
+
+```{r eval=FALSE}
+
+get_janes_data <- function(x){
+    request <- GET(url = x, add_headers(Authorization = Sys.getenv("JANES_KEY")))
+    response <- content(request, as = "text")
+    response %>%
+        fromJSON(simplifyDataFrame = TRUE) %>%
+        tibble()
+
+}
+
+
+bases_data <- map(bases$url, get_janes_data)
+
+
+```
+
+Finally, we can unnest all of the list columns in the bases_data data frame. Because certain columns may not be returned if they aren't in your particular search, this step uses two internal functions, which conditionally unnest_wider depending on whether the columns are in the data frame. Thanks to SO user [Alexlok who helped with this](https://stackoverflow.com/questions/63291143/unnest-wider-only-if-columns-exists-in-r)! 
+
+```{r eval=FALSE}
+
+bases_data %>%
+        tibble() %>%
+        rename(base = ".") %>%
+        unnest_wider(base) %>%
+        rename(base = ".") %>%
+        unnest_wider(base) %>%
+        select(-any_of("...1")) %>%
+        conditional_unnest_wider("installation") %>%
+        conditional_unnest_wider("operators") %>%
+        conditional_unnest_wider("operator") %>%
+        select(-"installationId") %>%
+        conditional_unnest_wider("operatorCountry") %>%
+        conditional_unnest_wider("runways") %>%
+        conditional_unnest_wider("runway") %>%
+        conditional_unnest_wider("runwayOrientation") %>%
+        conditional_unnest_wider("runwayOreientationOpposed") %>%
+        conditional_unnest_wider("runwaySurface") %>%
+        conditional_unnest_wider("runwayName") %>%
+        conditional_unnest_wider("runwayStatus") %>%
+        conditional_unnest_wider("runwayCenterline") %>%
+        conditional_unnest_wider("synonyms") %>%
+        conditional_unnest_wider("synonym") %>%
+        conditional_unnest_wider("operatorId") %>%
+        conditional_unnest_wider("installationId") %>%
+        conditional_unnest_wider("operatorServiceType") %>%
+        conditional_unnest_wider("operatorRegion") %>%
+        conditional_unnest_wider("operatorCountryISO") %>%
+        conditional_unnest_wider("location") %>%
+        conditional_unnest_wider("runwayLengthMetres") %>%
+        conditional_unnest_wider("runwayLengthFeet") %>%
+        conditional_unnest_wider("runwayOrientationOpposing") %>%
+        conditional_unnest_wider("runwayDirection1Name") %>%
+        conditional_unnest_wider("runwayDirection2Name") %>%
+        conditional_unnest_wider("runwayStaus") %>%
+        conditional_unnest_wider("runwayWidthMetres") %>%
+        conditional_unnest_wider("runwayWidthFeet") %>%
+        conditional_unnest_wider("runwayPCN") %>%
+        janitor::clean_names()
+
+```
+
+
+

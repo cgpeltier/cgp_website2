@@ -1,0 +1,788 @@
+---
+title: Analyzing the Fleet Foxes' Music in R
+author: Chad Peltier
+date: '2020-11-02'
+slug: analyzing-the-fleet-foxes-music-in-r
+categories:
+  - NLP
+  - R
+tags: []
+---
+
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+<script src="index_files/kePrint/kePrint.js"></script>
+<link href="index_files/lightable/lightable.css" rel="stylesheet" />
+
+
+<p>This project is designed to compare Fleet Foxes’ four albums. It uses the spotifyr and geniusr packages to download song features and lyrics, allowing for text analysis of lyrics for each track. I’ll use various NLP tools, including sentiment analysis and LDA to provide unsupervised classification of tracks on each album.</p>
+<pre class="r"><code>library(tidyverse)
+library(tidytext)
+library(spotifyr)
+library(geniusr)
+library(httr)
+library(jsonlite)
+library(tidytext)
+library(topicmodels)
+library(tidymodels)
+library(ggridges)
+library(kableExtra)
+library(textrecipes)</code></pre>
+<div id="pull-data" class="section level1">
+<h1>Pull data</h1>
+<p>Here we pull data from Spotify, keeping just the four main albums in Spotify: <em>Fleet Foxes</em>, <em>Helplessness Blues</em>, <em>Crack-Up</em>, and <em>Shore</em>, which was just released in October 2020.</p>
+<pre class="r"><code>## Spotify data
+ff &lt;- get_artist_audio_features(&quot;fleet foxes&quot;) %&gt;%
+    select(1:3, track_name, 6, 9:20, 32, 36:39) %&gt;%
+    relocate(artist_name, track_name, album_name)
+
+ff2 &lt;- ff %&gt;%
+    filter(!album_id %in% c(&quot;2m7zr13OtqMWyPkO32WRo0&quot;, &quot;5GRnydamKvIeG46dycID6v&quot;,
+                            &quot;6XzZ5pg9buAKNYg293KOQ8&quot;, &quot;62miIQWlOO88YmupzmUNGJ&quot;,
+                            &quot;6ou9sQOsIY5xIIX417L3ud&quot;, &quot;7LKzVm90JnhNMPF6qX21fS&quot;,
+                            &quot;7D0rCfJjFj9x0bdgRKtvzb&quot;)) %&gt;%
+    mutate(track_name_clean = str_to_lower(track_name),
+           track_name_clean = str_replace_all(track_name_clean, &quot;[:punct:]&quot;, &quot; &quot;))</code></pre>
+<p>The code chunk below uses the geniusr package to pull lyrics.</p>
+<pre class="r"><code>## Genus lyrics data
+ff_id &lt;- search_artist(&quot;Fleet Foxes&quot;) %&gt;%
+    pull(artist_id)
+
+ff_songs &lt;- get_artist_songs_df(ff_id)
+
+ff_lyrics &lt;- map(ff_songs$song_id, get_lyrics_id) %&gt;%
+    bind_rows()
+
+ff_lyrics2 &lt;- ff_lyrics %&gt;%
+    select(song_name, line, song_id) %&gt;%
+    group_by(song_id, song_name) %&gt;%
+    dplyr::summarize(line = paste0(line, collapse = &quot; &quot;)) %&gt;%
+    filter(!str_detect(song_name, &quot;Booklet&quot;)) %&gt;%
+    mutate(song_name_clean = str_to_lower(song_name),
+           song_name_clean = str_replace_all(song_name_clean, &quot;[:punct:]&quot;, &quot; &quot;))</code></pre>
+<pre><code>## `summarise()` regrouping output by &#39;song_id&#39; (override with `.groups` argument)</code></pre>
+<pre class="r"><code>## Alternative way to get lyrics using the genius package
+# albums &lt;- c(&quot;Shore&quot;, &quot;Crack Up&quot;, &quot;Helplessness Blues&quot;, &quot;Fleet Foxes&quot;)
+# ff_lyrics &lt;- map(albums, ~genius_album(artist = &quot;Fleet Foxes&quot;, album = .)) %&gt;%
+#     bind_rows()</code></pre>
+<p>Finally, we can combine the song features and lyrics into a single data frame.</p>
+<pre class="r"><code>## Combine lyrics and song features
+
+album_order &lt;- c(&quot;Shore&quot;,  &quot;Crack-Up&quot;, &quot;Helplessness Blues&quot;,  &quot;Fleet Foxes&quot;)
+
+
+ff_combined &lt;- ff2 %&gt;%
+    left_join(ff_lyrics2, by = c(&quot;track_name_clean&quot; = &quot;song_name_clean&quot;)) %&gt;%
+    select(-track_name_clean, song_name) %&gt;%
+    filter(!is.na(line)) %&gt;%
+    mutate(album_name = factor(album_name, levels = album_order)) </code></pre>
+</div>
+<div id="album-analysis" class="section level1">
+<h1>Album analysis</h1>
+<p>First, we’ll compare the how the various song features tracked by Spotify (danceability, energy, etc.) change across the four albums. My overall expectation is that the Fleet Foxes and Helplessness Blues albums are fairly similar, Crack-Up has a much more dissonance and lower valence, and Shore has higher valence.</p>
+<pre class="r"><code>ff_combined %&gt;%
+    pivot_longer(danceability:tempo) %&gt;% 
+    filter(!name %in% c(&quot;mode&quot;, &quot;liveness&quot;)) %&gt;% 
+    ggplot(aes(x = value, y = album_name, fill = album_name)) +
+        geom_density_ridges() +
+        facet_wrap(~ name, scales = &quot;free_x&quot;) + 
+        theme_classic() +
+        theme(legend.position = &quot;none&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<pre class="r"><code># This produces multiple larger charts (one for each track feature) instead
+
+vars &lt;- ff_combined %&gt;%
+    select(danceability:tempo) %&gt;%
+    colnames()
+
+map(vars, ~ ff_combined %&gt;%
+    mutate(album_name = factor(album_name, levels = album_order)) %&gt;%
+    ggplot(aes(x = .x, y = album_name, fill = album_name)) +
+        geom_density_ridges() +
+        theme_classic() +
+        theme(legend.position = &quot;none&quot;) +
+        labs(x = NULL, y = &quot;Album&quot;))</code></pre>
+<p>Some overall takeaways:</p>
+<ul>
+<li>Not surprised that Crack-Up has a uni-modal distribution of loud songs. Shore has a more uniform distribution of most song features, but especially loudness.</li>
+<li>Crack-Up is also distinctive in its distribution of keys, which has a much more concentrated distribution than the other albums.</li>
+<li>As expected, Crack-Up also sticks out in its valence distribution, with a uni-modal, low distribution. Shore is bi-modal, with concentrations of happier and sadder-sounding songs.</li>
+<li>Most songs’ tempos are a little slower on Shore than the previous two albums, though there is a second peak of higher-tempo songs. The first album, Fleet Foxes, stands out in this regard.</li>
+</ul>
+</div>
+<div id="tracks" class="section level1">
+<h1>Tracks</h1>
+<p>The code below analyzes individual tracks by various track features.</p>
+<pre class="r"><code>ff_combined %&gt;%
+    arrange(desc(valence)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %&gt;%
+    ggplot(aes(y = track_name, x = valence, color = album_name)) +
+    geom_segment(aes(x = 0, xend = valence, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;Valence&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-7-1.png" width="672" /></p>
+<pre class="r"><code>ff_combined %&gt;%
+    arrange(desc(danceability)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %&gt;%
+    ggplot(aes(y = track_name, x = danceability, color = album_name)) +
+    geom_segment(aes(x = 0, xend = danceability, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;danceability&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-7-2.png" width="672" /></p>
+<pre class="r"><code>ff_combined %&gt;%
+    arrange(desc(energy)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(track_name = factor(track_name, levels = track_name),
+           track_name = fct_rev(track_name)) %&gt;%
+    ggplot(aes(y = track_name, x = energy, color = album_name)) +
+    geom_segment(aes(x = 0, xend = energy, y = track_name, yend = track_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;energy&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-7-3.png" width="672" /></p>
+<pre class="r"><code>ff_combined %&gt;%
+    ggplot(aes(x = energy, y = valence, label = track_name)) + 
+    geom_point(color = &quot;#E32636&quot;, alpha = 0.7, size = 2) + 
+    ggrepel::geom_text_repel(size = 3, data = subset(ff_combined, energy &gt; .55 | energy &lt; .38 | valence &gt; .5)) +
+    theme_classic() </code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-7-4.png" width="672" /></p>
+<ul>
+<li>Battery Kinzie is by far the highest valence song. I’m also not surprised to see Young Man’s Game and Lorelai in the top 6. The Plains / Bitter Dancer and Fool’s Errand are fitting for the lowest valence tracks. And 3 of the bottom 6 valence songs are on Crack-Up.</li>
+<li>I wouldn’t necessarily say any Fleet Foxes song is really all that danceable…</li>
+<li>5 of the top 6 (and 7 of 9) highest energy songs are all on Shore!</li>
+</ul>
+</div>
+<div id="tracks-and-sentiment-analysis" class="section level1">
+<h1>Tracks and Sentiment Analysis</h1>
+<p>Next we can bring in some sentiments from the nrc data to compare whether valence aligns with positive vs. negative lyrics on individual tracks. Do some songs sound happy but have negative lyrics, or vice versa?</p>
+<pre class="r"><code>ff_sentiment &lt;- ff_combined %&gt;% 
+    unnest_tokens(word, line) %&gt;%
+    select(album_name, track_name, word) %&gt;%
+    anti_join(stop_words) %&gt;%
+    inner_join(get_sentiments(&quot;nrc&quot;)) %&gt;%
+    distinct(word, track_name, .keep_all = TRUE) %&gt;%
+    mutate(sentiment = if_else(sentiment %in% c(&quot;anger&quot;, &quot;fear&quot;, &quot;negative&quot;, 
+                                                &quot;disgust&quot;, &quot;sadness&quot;), 
+                               &quot;negative&quot;, &quot;positive&quot;)) %&gt;% 
+    count(track_name, sentiment) %&gt;%
+    group_by(track_name) %&gt;%
+    mutate(prop = round(n/sum(n), 2)) %&gt;%
+    filter(sentiment == &quot;negative&quot;) %&gt;%
+    left_join(ff_combined %&gt;% select(track_name, valence))</code></pre>
+<pre><code>## Joining, by = &quot;word&quot;
+## Joining, by = &quot;word&quot;</code></pre>
+<pre><code>## Joining, by = &quot;track_name&quot;</code></pre>
+<pre class="r"><code>ff_sentiment %&gt;%
+    ggplot(aes(prop, valence, label = track_name)) + 
+    geom_point(color = &quot;#E32636&quot;, alpha = 0.7, size = 2) + 
+    ggrepel::geom_text_repel(size = 3, data = subset(ff_sentiment, valence &gt; .25 | prop &gt; .6 | prop &lt; .4)) +
+    theme_classic() +
+    labs(x = &quot;% Negative Emotions&quot;, y = &quot;Valence&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-8-1.png" width="672" /></p>
+<p>Some of the sentiment analysis is tough because there aren’t a ton of words per song that have a sentiment in the nrc lexicon. However, it is interesting that many of the top valence songs, like Battery Kinzie, White Winter Hymnal, Lorelai, and Can I Believe you all have 50% or less positive emotions. That’s not surprising for Can I Believe You, which sounds upbeat but is about relationship trust issues.</p>
+</div>
+<div id="lda" class="section level1">
+<h1>LDA</h1>
+<p>Finally, we can do some LDA for unsupervised classification of songs into 5 topics.</p>
+<pre class="r"><code>ff_dtm &lt;- ff_combined %&gt;%
+    rename(text = line) %&gt;% 
+    unnest_tokens(word, text) %&gt;%
+    anti_join(stop_words, by = &quot;word&quot;) %&gt;%
+    count(track_name, word, sort = TRUE) %&gt;%
+    cast_dtm(track_name, word, n)
+
+ff_lda &lt;- LDA(ff_dtm, k = 5, control = list(seed = 123))
+
+
+
+ff_topics &lt;- ff_lda %&gt;%
+    tidy(matrix = &quot;beta&quot;)
+
+
+ff_top_terms &lt;- ff_topics %&gt;%
+    group_by(topic) %&gt;%
+    top_n(5, abs(beta)) %&gt;%
+    ungroup() %&gt;%
+    arrange(topic, desc(beta))
+
+
+ff_top_terms %&gt;%
+    mutate(term = reorder_within(term, beta, topic)) %&gt;%
+    ggplot(aes(beta, term, fill = factor(topic))) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~ topic, scales = &quot;free&quot;) +
+    scale_y_reordered()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>So, our LDA algorithm found the following topics:</p>
+<ol style="list-style-type: decimal">
+<li>Songs with lyrics about the morning, with home-y related words (lie, home, apples).</li>
+<li>Lyrics dominated by time, as well as walking with the devil.</li>
+<li>Nature-dominated imagery – the ocean, rising, light and dark.</li>
+<li>Another morning/sleep-focused topic, that seems to contrast with night-time and sleep-focused imagery (night, home, light, dream).</li>
+<li>Water and memory-focused focused lyrics.</li>
+</ol>
+<p>Seeing these 5 topics, it’s clear that nature, memory, light and darkness all factor heavily across all Fleet Foxes lyrics.</p>
+<p>Finally, we can classify each song into one of the above topics.</p>
+<pre class="r"><code>ff_lda %&gt;%
+    tidy(matrix = &quot;gamma&quot;) %&gt;%
+    group_by(document) %&gt;%
+    top_n(n = 1, wt = gamma) %&gt;%
+    arrange(topic) %&gt;%
+    kbl(booktabs = TRUE) %&gt;%
+    kable_styling(bootstrap_options = &quot;striped&quot;) %&gt;%
+    kable_paper()</code></pre>
+<table class="table table-striped lightable-paper" style='margin-left: auto; margin-right: auto; font-family: "Arial Narrow", arial, helvetica, sans-serif; margin-left: auto; margin-right: auto;'>
+<thead>
+<tr>
+<th style="text-align:left;">
+document
+</th>
+<th style="text-align:right;">
+topic
+</th>
+<th style="text-align:right;">
+gamma
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+The Shrine / An Argument
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.9993863
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Helplessness Blues
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.9989583
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Ragged Wood
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.9985740
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Sunblind
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.9994617
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Blue Ridge Mountains
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.9991584
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Lorelai
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9984385
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+If You Need To, Keep Time on Me
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9967279
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Quiet Air / Gioia
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9993806
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Oliver James
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9990884
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+White Winter Hymnal
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9988488
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Meadowlarks
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9981269
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Can I Believe You
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9981789
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Sim Sala Bim
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0.9986334
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Quiet Houses
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9980137
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+On Another Ocean (January / June)
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9986334
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Fool’s Errand
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9984748
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Featherweight
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9988283
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Jara
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9991584
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Kept Woman
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9988070
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Crack-Up
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9984005
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Cradling Mother, Cradling Woman
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9987383
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+He Doesn’t Know Why
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9984385
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+I’m Not My Season
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9988283
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Montezuma
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9981269
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Someone You’d Admire
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0.9972714
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Your Protector
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9986334
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Battery Kinzie
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9988687
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Grown Ocean
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9989583
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Blue Spotted Tail
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9984748
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Third of May / Odaigahara
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9993434
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+I Am All That I Need / Arroyo Seco / Thumbprint Scar
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9988878
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Sun It Rises
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9975736
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+The Plains / Bitter Dancer
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9981269
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Tiger Mountain Peasant Song
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9984005
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Young Man’s Game
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0.9986334
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Cassius, -
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9991584
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Shore
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9987136
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Bedouin Dress
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9984005
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Maestranza
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.8463228
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A Long Way Past The Past
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9986879
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Mearcstapa
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9973802
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Wading In Waist-High Water
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9978859
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+<ul>
+<li>Naiads, Cassadies
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9972714
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+For A Week Or Two
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9981269
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Going-to-the-Sun Road
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9989583
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Thymia
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9980720
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+I Should See Memphis
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0.9973802
+</td>
+</tr>
+</tbody>
+</table></li>
+</ul>
+</div>

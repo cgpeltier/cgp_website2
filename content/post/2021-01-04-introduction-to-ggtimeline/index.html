@@ -1,0 +1,135 @@
+---
+title: Introduction to ggtimeline
+author: Chad Peltier
+date: '2021-01-04'
+slug: introduction-to-ggtimeline
+categories:
+  - Packages
+tags:
+  - Packages
+---
+
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+
+
+<p>I recently posted a <a href="https://github.com/cgpeltier/ggtimeline">new package to my github called ggtimeline</a>, which uses <code>ggplot2</code> to easily produce timeline charts.</p>
+<p>When I was a defense analyst on the consulting team at Janes, I occasionally needed to create event timelines for presentations or reports. Following a post from <a href="https://benalexkeen.com/creating-a-timeline-graphic-using-r-and-ggplot2/">Ben Alex Keen</a>, I created this package so that others might be able to create timelines more easily.</p>
+<p>Here’s the full code, as it stands now. I’m planning to add more customization options in the future and would appreciate any collaboration from others who’re interested in contributing!</p>
+<pre class="r"><code>ggtimeline &lt;- function(df, date_col, title_col, color_col = NULL,
+                       time_span, time_space,
+                       positions = c(0.5, -0.5, 1.0, -1.0, 1.25, -1.25, 1.5, -1.5)){
+
+    directions &lt;- c(1, -1)
+
+    length_dates &lt;- df %&gt;% pull({{date_col}}) %&gt;% length()
+
+    df2 &lt;- df %&gt;%
+      mutate(position = rep(positions, length.out = length_dates),
+             direction = rep(directions, length.out = length_dates))
+
+    min_date &lt;- df2 %&gt;% pull({{date_col}}) %&gt;% min()
+    max_date &lt;- df2 %&gt;% pull({{date_col}}) %&gt;% max()
+
+    if(time_span == &quot;month&quot;){
+      date_range_df &lt;- seq(min_date - months(1),
+                           max_date + months(1),
+                           by = time_span) %&gt;%
+        tibble() %&gt;%
+        rename(date_range = &quot;.&quot;) %&gt;%
+        mutate(date_range = ymd(date_range),
+               date_format = format(date_range, &#39;%b   %Y&#39;),
+               keep = rep(as.numeric(paste(c(1, rep(0, times = time_space)))),
+                          length.out = nrow(.))) %&gt;%
+        filter(keep == 1)
+    }
+
+    if(time_span == &quot;year&quot;){
+      date_range_df &lt;- seq(min_date - lubridate::years(1),
+                           max_date + lubridate::years(1),
+                           by = time_span) %&gt;%
+        tibble() %&gt;%
+        rename(date_range = &quot;.&quot;) %&gt;%
+        mutate(date_range = ymd(date_range),
+               date_format = format(date_range, &#39;%b   %Y&#39;),
+               keep = rep(as.numeric(paste(c(1, rep(0, times = time_space)))),
+                          length.out = nrow(.))) %&gt;%
+        filter(keep == 1)
+    }
+
+    if(time_span == &quot;day&quot;){
+      date_range_df &lt;- seq(min_date - lubridate::days(1),
+                           max_date + lubridate::days(1),
+                           by = time_span) %&gt;%
+        tibble() %&gt;%
+        rename(date_range = &quot;.&quot;) %&gt;%
+        mutate(date_range = ymd(date_range),
+               date_format = format(date_range, &#39;%d %b  %Y   &#39;),
+               keep = rep(as.numeric(paste(c(1, rep(0, times = time_space)))),
+                          length.out = nrow(.))) %&gt;%
+        filter(keep == 1)
+    }
+
+    name_date &lt;- df2 %&gt;% select({{date_col}}) %&gt;% colnames()
+    title_date &lt;- df2 %&gt;% select({{title_col}}) %&gt;% colnames()
+
+    ggplot(df2, aes_string(x = name_date, y = &quot;position&quot;,
+                          label = title_date)) +
+      geom_point(size=2, aes_string(color = {{color_col}})) +
+      geom_hline(yintercept=0, color = &quot;black&quot;, size=.8) +
+      geom_segment(aes_string(y=&quot;position&quot;, yend=0,xend=name_date),
+                   color=&#39;black&#39;, size=0.2) +
+      geom_text(data = date_range_df, aes_string(label = &quot;date_format&quot;, x = &quot;date_range&quot;, y = 0, angle = 90),
+                size = 2.5, hjust = 0.5, fontface = &quot;bold&quot;)
+}</code></pre>
+<p><code>ggtimeline</code> uses the following arguments:</p>
+<ul>
+<li>df: Dataframe containing the timeseries data</li>
+<li>date_col: Name of the column containing dates</li>
+<li>title_col: Name of the column containing timeline data (i.e. the text in the timeline)</li>
+<li>color_col: Name of the column that contains groups to color timeline points (optional)</li>
+<li>time_span: One of “day”, “month”, or “year”</li>
+<li>time_space: Number of days/months/years between those shown on timeline (i.e., if time_span is months, then a timespace of 2 would show January, April, July, and October for a single year)</li>
+<li>positions: Height positions for timeline points</li>
+</ul>
+<p>It’s designed so that you’d follow a <code>ggtimeline()</code> call with a <code>geom_text()</code> or <code>ggrepel::geom_text_repel()</code> function to display the title_col text.</p>
+<div id="example-usage" class="section level2">
+<h2>Example usage</h2>
+<p>Here’s an example using the New York Times API:</p>
+<pre class="r"><code>library(tidyverse)
+library(jsonlite)
+
+
+nyt_data &lt;- GET(paste0(&quot;https://api.nytimes.com/svc/search/v2/articlesearch.json?q=artificial%20intelligence&amp;api-key=&quot;, Sys.getenv(&quot;NYT_KEY&quot;))) %&gt;%
+    content(as = &quot;text&quot;) %&gt;%
+    fromJSON(simplifyDataFrame = TRUE)
+
+nyt_data2 &lt;- nyt_data$response$docs
+
+headlines &lt;- nyt_data2$headline %&gt;% select(main)
+
+## clean data from API using janitor and lubridate. Note the use of stringr::str_wrap to make sure timeline text is wrapped.    
+nyt_data3 &lt;- nyt_data2 %&gt;% 
+    janitor::clean_names() %&gt;% 
+    bind_cols(headlines) %&gt;% 
+    mutate(pub_date = as.Date(lubridate::ymd_hms(pub_date)),
+           abstract = str_wrap(abstract, 20),
+           main_headline = str_wrap(main, 20)) %&gt;% 
+    arrange(desc(pub_date))
+
+
+## make timeline chart
+ggtimeline(nyt_data3, date_col = &quot;pub_date&quot;, title_col = &quot;main_headline&quot;, color_col = &quot;news_desk&quot;, time_span = &quot;day&quot;, time_space = 5) +
+    ggrepel::geom_text_repel(size = 3, vjust = 1) +
+    theme_classic() +
+    theme(axis.line.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.text.x =element_blank(),
+          axis.ticks.x =element_blank(),
+          axis.line.x =element_blank(),
+          legend.position = &quot;bottom&quot;)</code></pre>
+<p><img src="ggtimeline_ex1.png" style="width:90.0%;height:90.0%" /></p>
+</div>

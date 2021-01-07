@@ -1,0 +1,875 @@
+---
+title: Using spatial data to determine where we should live
+author: Chad Peltier
+date: '2020-11-13'
+slug: using-spatial-data-to-determine-where-we-should-live
+categories: []
+tags:
+  - Geospatial
+---
+
+  
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+
+
+From talking to my wife about what it would be like to live in various places around the country, I decided to put together a project that combines various kinds of spatial data to figure out where would be the best fit for us to live. 
+
+I collected data from a wide variety of sources, many of which are at different geographic levels of analysis. Some are point-based data like library locations, some are by Congressional district, and some are by census tract. There's also a lot of missing data. So from a data science perspective, the two main challenges here are using spatial joins and imputing missing data. 
+
+Here's an outline of the data that I pulled together.
+
+* Temperature - avg temps in summer
+* Temperature - avg temps in winter
+* Number of cloudy days 
+* Medicaid expansion by state
+* District type (urban/rural/etc.)
+* Proximity to libraries
+* Proximity to trails
+* Congressional representative 
+* Walkability 
+* Life expectancy
+* Housing costs
+
+There are a number of other data -- like state-level minimum wage and other policies -- that I'd like to add in the future, so I'll plan to update this page in the future. 
+
+
+```{r message=FALSE}
+library(tidyverse)
+library(tidycensus)
+library(GSODR)
+library(rnaturalearth)
+library(sf)
+library(tigris)
+library(opencage)
+library(ggsflabel)
+library(httr)
+library(jsonlite)
+library(leaflet)
+library(leaflet.providers)
+library(recipes)
+library(Rvoteview)
+library(politicaldata)
+
+```
+
+
+# Congressional District Data
+
+This will start out at the congressional district level, but I added in census tract-level data later on. This data is taken from the tidycensus package, where we'll specify the geometry class as simple features for easy geospatial analysis in R. 
+
+We'll also filter for just the contiguous U.S., since I doubt we'll be headed to Alaska, Hawaii or Puerto Rico for good. 
+
+```{r results='hide'}
+
+## get acs data
+us_acs <- get_acs(geography = "congressional district", 
+                  geometry = TRUE,
+                  variables = "B23006_001",
+                  progress = FALSE)
+```
+
+
+
+```{r }
+us_no_geom <- us_acs %>%
+    st_drop_geometry()
+
+states <- tibble(state.name, state.abb)
+
+us_acs2 <- us_acs %>%
+    mutate(state = str_extract(NAME, "(?<=\\), ).+"),
+           district = str_extract(NAME, "(?<=Congressional District ).+(?= \\()"),
+           district = if_else(district == "(at Large)", "1", district)) %>%
+    left_join(states, by = c("state" = "state.name")) %>%
+    unite(congress_district, state.abb, district, sep = " ", remove = FALSE) %>%
+    select(-c(NAME, variable, estimate, moe, state.abb, district, GEOID)) %>%
+    filter(!state %in% c("Hawaii", "Alaska", "Puerto Rico")) %>%
+    st_set_crs(4326)
+
+
+```
+
+
+
+# Weather data
+Next we'll use the GSODR package to pull average rain data and average summer temperature data.
+
+We'll use a spatial join to connect the sites where the weather data was taken with the congressional district that the location is in. 
+
+```{r }
+us_no_geom <- us_acs2 %>%
+    st_drop_geometry()
+
+usa_weather <- get_GSOD(years = 2017, country = "USA")
+
+avg_rain <- usa_weather %>%
+    mutate(PRCP = if_else(is.na(PRCP), 0, PRCP)) %>%
+    group_by(NAME) %>%
+    summarize(avg_rain = mean(PRCP, na.rm = TRUE)) %>%
+    arrange(desc(avg_rain)) %>%
+    left_join(usa_weather %>% select(NAME, LONGITUDE, LATITUDE), by = "NAME") %>%
+    distinct(NAME, .keep_all = TRUE) %>%
+    st_as_sf(coords = c("LONGITUDE", "LATITUDE")) %>%
+    st_set_crs(4326)
+
+## Join with rain data
+us_acs3 <- us_acs2 %>%
+    st_transform(crs = 4326) %>%
+    st_join(avg_rain)
+
+us_acs4 <- us_acs3 %>%
+    st_drop_geometry() %>%
+   # drop_na(dem) %>%
+    distinct(congress_district, .keep_all = TRUE)
+    
+
+## Join with summer temps data
+avg_temp_summer <- usa_weather %>%
+    mutate(TEMP = if_else(is.na(TEMP), 0, TEMP)) %>%
+    filter(MONTH %in% 7:9) %>%
+    group_by(NAME) %>%
+    summarize(avg_temp = mean(TEMP, na.rm = TRUE)) %>%
+    left_join(usa_weather %>% select(NAME, LONGITUDE, LATITUDE), by = "NAME") %>%
+    distinct(NAME, .keep_all = TRUE) %>%
+    st_as_sf(coords = c("LONGITUDE", "LATITUDE"))
+
+us_acs5 <- us_acs4 %>%
+    left_join(avg_temp_summer, by = "NAME")
+
+```
+
+### NOAA weather data
+Cloudy days are worse than the cold days to me, so we can use annual cloudy days data from NOAA (in a txt file) as well. This is a multi-step process:
+
+* Read in clouds data 
+* Forward geocode the weather station cities using opencage so we can get long/lats for the stations
+* Spatially join the geocoded weather data to our existing dataset, which is organized by congressional districts 
+
+The function clean_coords below uses opencage, and also transforms the result into a format that we can later use for the spatial join. We also wrap it in purrr::possibly() so that any errors in the addresses data don't cause the code chunk to fail.
+
+```{r cache=TRUE}
+
+## Add NOAA clouds data 
+clouds <- read_table("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\clouds.txt")
+
+clouds2 <- clouds %>%
+    rename(station = `13876BIRMINGHAM AP, AL 37 7 6 18 7 6 15 7 8 16 9 8 13 8 11 12 7 13 10 5 14 12 7 15 10 9 9 11 14 8 9 10 7 13 8 7 16 99 111 155`) %>%
+    separate(station, into = c("station", "data"), sep = "(?<=\\,\\s\\w\\w)\\s") %>%
+    separate(data, into = paste0("v", seq_len(40)), sep = "\\s") %>%
+    select(station, v38:v40) %>%
+    rename(annual_clear = v38, annual_pc = v39, annual_cloudy = v40) %>%
+    mutate(station = str_remove_all(station, "\\d+"),
+           station = str_to_title(station)) 
+
+
+## function to clean coordinates using opencage + change units to dec_deg
+clean_coords <- function(x){
+    temp <- opencage_forward(placename = x, country = "US")$results[1,1:2]
+    temp %>%
+        rename(lat = annotations.DMS.lat, long = annotations.DMS.lng) %>%
+        mutate(lat = str_replace_all(lat, "[\\'\\°NW]", ""),
+               long = str_replace_all(long, "[\\'\\°NW]", ""),
+               lat = measurements::conv_unit(lat, from = "deg_min_sec", 
+                                             to = "dec_deg"),
+               long = measurements::conv_unit(long, from = "deg_min_sec", 
+                                              to = "dec_deg")) 
+}
+
+
+## clean station names 
+clouds2 <- clouds2 %>%
+    filter(!str_detect(station, "\\, Ak"),
+           !str_detect(station, "\\, Dc"),
+           !str_detect(station, "\\, Pc"),
+           !str_detect(station, "\\, Pr"),
+           !str_detect(station, "(North)"),
+           !str_detect(station, "Atlantic City"),
+           !str_detect(station, "New York (Jfk Ap), Ny"),
+           !str_detect(station, "New York (Laguardia Ap), Ny"),
+           ) %>%
+    mutate(station = if_else(station == "New York C.park, Ny",
+                                     str_remove(station, "C.park, "), 
+                                     station),
+           station = if_else(station == "Greensboro-Wnstn-Salm-Hghpt, Nc",
+                                     str_remove(station, "-Wnstn-Salm-Hghpt"), 
+                                     station),
+           station = str_remove(station, " Ap"),
+           station = str_remove(station, "Greater"),
+           station = str_remove(station, " / Harrisburg I Apt"),
+           station = str_remove(station, ", Yes")) 
+
+
+## clean coords using possibly
+possibly_clean_coords <- possibly(clean_coords, otherwise = NA_real_)
+
+
+test <- map(clouds2$station, possibly_clean_coords) %>%
+    bind_rows()
+
+
+## join cleaned coords with clouds data 
+clouds3 <- test %>%
+    mutate(long = paste0("-", long)) %>%
+    bind_cols(clouds2 %>% select(station)) %>%
+    left_join(clouds2, by = "station") %>%
+    st_as_sf(coords = c("long", "lat"), crs = 4326)
+
+    
+clouds4 <- us_acs2 %>%
+    select(congress_district) %>%
+    st_join(clouds3, join = st_is_within_distance, 20000) %>%
+    st_drop_geometry()
+
+us_acs6 <- us_acs5 %>%
+    left_join(clouds4, by = "congress_district") %>%
+    distinct(congress_district, .keep_all = TRUE) %>%
+    mutate(across(c(starts_with("annual_")), as.numeric)) %>%
+    select(-c(station, geometry))
+
+```
+
+### Add temp by month 
+We'll add a little more weather data -- this time looking at average temperatures during the summer and winter. 
+
+```{r }
+
+summer_temps <- usa_weather %>%
+    group_by(NAME) %>%
+    filter(MONTH %in% 7:9) %>%
+    summarize(summer_temp = mean(TEMP, na.rm = TRUE)) %>%
+    left_join(usa_weather %>% select(NAME), by = "NAME") %>%
+    distinct(NAME, .keep_all = TRUE) 
+
+
+winter_temps <- usa_weather %>%
+    group_by(NAME) %>%
+    filter(MONTH %in% 1:3) %>%
+    summarize(winter_temp = mean(TEMP, na.rm = TRUE)) %>%
+    left_join(usa_weather %>% select(NAME), by = "NAME") %>%
+    distinct(NAME, .keep_all = TRUE) %>%
+    left_join(summer_temps)
+
+
+us_acs7 <- us_acs6 %>%
+    left_join(winter_temps, by = "NAME") %>%
+    select(-NAME, -avg_temp) %>%
+    mutate(winter_temp = measurements::conv_unit(winter_temp, from = "C", to = "F"),
+           summer_temp = measurements::conv_unit(summer_temp, from = "C", to = "F"))
+
+
+```
+
+Now that we've finished wrangling the weather data, we can create some test charts to check on that info. It looks like there's a strong relationship between cloudiness and average rain for the year (which we'd expect!). 
+
+
+```{r}
+us_acs7 %>%
+    filter(!is.na(annual_cloudy)) %>%
+    ggplot(aes(x = annual_cloudy, y = avg_rain)) +
+    geom_point() +
+    geom_smooth(method = "lm")
+
+
+```
+
+# Add Medicaid expansion
+This is a key policy consideration for us -- has the state expanded Medicaid? Only 12 states haven't, but unfortunately many of them are warmer, sunnier places (including Georgia). As my wife has described to me, there are a lot of reasons why Medicaid expansion is important. States that have expanded Medicaid have been shown to be able to:
+
+* Better able to [handle Covid-19 and the recession](https://www.cbpp.org/research/health/states-that-have-expanded-medicaid-are-better-positioned-to-address-covid-19-and)
+* Improve outcomes for [prenatal and postpartum health](https://healthpayerintelligence.com/news/medicaid-expansion-improves-key-prenatal-postpartum-indicators)
+* [Catch early-stage cancer more effectively](https://www.ajmc.com/view/medicaid-expansion-associated-with-more-early-stage-cancer-diagnoses)
+* [Cuts the uninsured rate](https://www.cbpp.org/blog/medicaid-expansion-cut-uninsured-rate-in-half-for-low-income-rural-residents) for low income rural residents
+* And many more benefits as outlined [here](https://www.cbpp.org/research/health/chart-book-the-far-reaching-benefits-of-the-affordable-care-acts-medicaid)
+
+
+```{r } 
+no_medicaid <- c("Wyoming", "South Dakota", "Wisconsin", "Kansas",
+                 "Texas", "Tennessee", "Mississippi", "North Carolina",
+                 "South Carolina", "Georgia", "Alabama", "Florida")
+
+
+us_acs8 <- us_acs7 %>%
+    mutate(medicaid_expansion = if_else(state %in% no_medicaid, 0, 1))
+
+
+us_acs8 <- us_acs2 %>%
+    select("congress_district") %>%
+    left_join(us_acs8, by = "congress_district")
+
+
+us_no_geom <- us_acs8 %>%
+    st_drop_geometry()
+
+```
+
+
+# Add population density data 
+Population density data from [Citylab](https://github.com/theatlantic/citylab-data/blob/master/citylab-congress/citylab_cdi.csv) is helpful because it gives a sense of whether the district is very rural. We probably wouldn't want to live in an *extremely* rural place, so we can filter those districts out.
+
+```{r }
+citylab <- read_csv("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\citylab.csv")
+citylab <- citylab %>%
+    janitor::clean_names() %>%
+    mutate(cd = str_replace(cd, "-", " "),
+           cd = str_replace(cd, "(?<=\\w\\w\\s)AL", "1"),
+           cd = str_remove(cd, "(?<=\\w\\w\\s)0"))
+
+
+us_acs9 <- us_acs8 %>%
+    left_join(citylab, by = c("congress_district" = "cd"))
+
+us_no_geom <- us_acs9 %>%
+    st_drop_geometry()
+
+
+```
+
+
+# Add cities
+Sometimes it's hard to tell what actual cities we'd live in inside the good districts. Data from [Simplemaps](https://simplemaps.com/data/us-cities) can help with that. We'll again spatially join the cities data with our districts data.
+
+```{r }
+us_cities <- read_csv("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\uscities.csv")
+
+us_cities2 <- us_cities %>%
+    select(city, state_name, ranking, lng, lat) %>%
+    st_as_sf(coords = c("lng", "lat"), crs = 4326)
+
+
+major_cities <- us_cities %>%
+    filter(ranking == 1) %>%
+    select(city, state_name, lng, lat) %>%
+    st_as_sf(coords = c("lng", "lat"), crs = 4326)
+
+
+## add in congressional districts 
+us_cities3 <- us_cities2 %>%
+    st_join(us_acs2 %>% select(congress_district))
+
+us_cities_no_geom <- us_cities3 %>%
+    st_drop_geometry()
+
+```
+
+# Add Congress data
+It might also be interesting to see who our potential Congressional representatives would be (note: using data from before the 2020 election). We can use the Rvoteview package to get this information, then join the representatives data with the districts data. 
+
+```{r }
+
+reps <- download_metadata(type = "members", chamber = "house", congress = 116) %>%
+    mutate(party = if_else(party_code == 200, "Republican",
+                           if_else(party_code == 100, "Democrat", "Independent")),
+           congress_district = paste(state_abbrev, district_code, sep = " ")) %>%
+    select(bioname, party, congress_district, nominate_dim1)
+
+
+us_acs10 <- us_acs9 %>%
+    left_join(reps)
+
+us_no_geom <- us_acs10 %>%
+    st_drop_geometry()
+
+```
+
+# Impute weather variables
+Weather data is really important to our decision about where to live, and we used a spatial join based on distance to the district when we added in the weather stations data above. But there are still a relatively large number of districts where we don't have data on the cloudiness levels and the average summer temperatures. 
+
+We'll impute the missing data using the recipes package and the step_knnimpute, and based on the rainfall and temperature data in districts where we do have data. 
+
+```{r }
+
+selected_vars <- us_no_geom %>%
+    select(congress_district, avg_rain, annual_cloudy, winter_temp, summer_temp)
+
+impute_rec <- recipe(annual_cloudy ~ ., data = selected_vars) %>%
+    update_role(congress_district, new_role = "id") %>%
+    step_knnimpute(annual_cloudy, summer_temp)
+
+
+imputed <- prep(impute_rec) %>% juice()
+
+summary(us_no_geom$annual_cloudy)
+summary(imputed$annual_cloudy)
+
+
+us_acs10 <- us_acs10 %>%
+    select(-c(annual_cloudy, summer_temp)) %>%
+    left_join(imputed %>% select(congress_district, annual_cloudy, summer_temp), 
+              by = "congress_district")
+
+us_no_geom <- us_acs10 %>%
+    st_drop_geometry()
+```
+
+As we can see, the imputations did a good job preserving the original, non-imputed data distribution.
+
+```{r}
+us_no_geom %>%
+    skimr::skim()
+```
+
+
+
+# Final district list
+We've collected a bunch of data for each district, but now we can filter to a just the districts where we might want to live. To start we can use:
+
+* Less cloudy than top quartile district
+* Not rural 
+* In a state that expanded Medicaid (or is Georgia, where we live now)
+
+These are hard filters, but the other data we've collected so far are more soft filters -- things we can keep in mind (like summer/winter temps) to determine where to live. 
+
+```{r }
+
+## Create nice districts 
+nice_districts <- us_acs10 %>% 
+    filter(annual_cloudy < quantile(us_acs10$annual_cloudy, na.rm = TRUE)[4],
+           !cluster %in% c("Pure rural", "Rural-suburban mix"),
+           medicaid_expansion == 1 | state == "Georgia")
+
+nice_districts_no_geom <- nice_districts %>%
+    st_drop_geometry() 
+
+nice_districts_no_geom %>%
+    select(congress_district, summer_temp, avg_rain, 
+           annual_cloudy, cluster, bioname) %>%
+    arrange(desc(summer_temp)) %>%
+    head(5)
+
+
+## cities in nice districts 
+nice_cities <- us_cities3 %>% filter(congress_district %in% nice_districts$congress_district) %>%
+    st_drop_geometry() 
+
+nice_cities %>%
+    arrange(ranking) %>%
+    head(25)
+
+## map 
+ggplot(data = us_acs2) +
+    geom_sf() +
+    theme_void() + 
+    geom_sf(data = nice_districts, fill = "palegreen4") + 
+    geom_sf_label_repel(data = us_cities3 %>% filter(congress_district %in% nice_districts$congress_district & ranking == 1), aes(label = city))
+
+
+
+ggplot(data = us_acs2) +
+    geom_sf() +
+    theme_void() + 
+    geom_sf(data = nice_districts, aes(fill = summer_temp)) + 
+    viridis::scale_fill_viridis(option = "C", direction = -1) + 
+    geom_sf_label_repel(data = us_cities3 %>% filter(congress_district %in% nice_districts$congress_district & ranking == 1), aes(label = city))
+
+
+ggplot(data = us_acs2) +
+    geom_sf() +
+    theme_void() + 
+    geom_sf(data = nice_districts, aes(fill = annual_cloudy)) + 
+    viridis::scale_fill_viridis(option = "D", direction = -1) 
+
+
+```
+
+
+
+# Add point location data - trails and libraries
+Next, we want to know where in the district to live. One of the best things about where we live now is being able to run on trails outside and also run to the library. So we can get data on trails and library locations to help too. 
+
+
+### Trails 
+Trails data comes from the [Hiking Project API](https://www.hikingproject.com/data). We'll find all trails within 20 miles of the centroid of each district. 
+
+```{r message=FALSE, cache=TRUE}
+
+hiking_project_key <- Sys.getenv("HIKING_PROJECT_KEY")
+
+cd_centroids <- us_acs10 %>% 
+    select(congress_district, geometry) %>%
+    st_centroid() %>%
+    st_coordinates() %>%
+    as.data.frame() %>%
+    bind_cols(us_acs10 %>% select(congress_district) %>% st_drop_geometry()) %>%
+    rename(long = X, lat = Y)
+
+
+get_trails <- function(lat, long){
+    request <- GET(url = paste0("https://www.hikingproject.com/data/get-trails?lat=", 
+                                lat, "&lon=", long, "&maxDistance=20&key=",
+                                hiking_project_key))
+    response <- content(request, as = "text")
+    
+    response %>%
+        fromJSON() %>%
+        tibble() %>%
+        rename(trails = ".") %>%
+        unnest(trails) %>%
+        drop_na(id)
+}
+
+
+## Map through list of centroids
+cds_filtered <- cd_centroids %>% 
+    filter(congress_district %in% nice_districts$congress_district) 
+
+possibly_get_trails <- possibly(get_trails, otherwise = NULL)
+
+
+trails_filtered <- map2(cds_filtered$lat, cds_filtered$long, possibly_get_trails) %>%
+    compact() %>%
+    bind_rows()
+
+
+trails_map <- trails_filtered %>%
+    select(longitude, latitude) %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326) 
+
+
+```
+
+
+```{r}
+## Map of trails across good districts in whole US
+ggplot(data = us_acs2) +
+    geom_sf() +
+    theme_void() + 
+    geom_sf(data = nice_districts, color = "red4") + 
+    geom_sf(data = trails_map, alpha = 0.5, color = "palegreen4") + 
+    theme(legend.position = "none") +
+    ggtitle("Trails in Good Districts")
+
+```
+
+
+### Libraries
+We ultimately need state-level library data from the states that have districts that fit our criteria above. But we'll start out with just [California](https://www.countingopinions.com/pireports/report.php?59dc32d967c17055386037ebb3e44a0d&live), [Georgia](https://georgialibraries.org/allpubliclibraryfacilities/), and [Minnesota](https://publiclibraries.com/state/minnesota/). For Minnesota we'll need to scrape the publiclibraries.com website. 
+
+We'll again use the clean_coords function above (which uses opencage) to get coordinates for each library branch address. 
+
+```{r cache=TRUE}
+
+library(rvest)
+
+ga_libraries <- read_csv("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\ga_libraries.csv") %>%
+    janitor::clean_names() %>%
+    select(library_name = facility, address)
+
+ca_libraries <- read_csv("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\ca_libraries.csv") %>%
+    janitor::clean_names() %>%
+    rename(library_name = location) %>%
+    unite(col = "address", physical_street_address, city, zip_code, sep = ", ") %>%
+    mutate(address  = str_to_title(address),
+           library_name = str_to_title(library_name))
+
+
+mn_libraries <- xml2::read_html("https://publiclibraries.com/state/minnesota/") %>%
+    html_node("#libraries") %>%
+    html_table() %>%
+    janitor::clean_names() %>%
+    mutate(address = paste(address, city, zip, sep = ", "))
+
+
+## get long/lats
+ga_libraries2 <- map(ga_libraries$address, clean_coords) %>%
+    bind_rows() %>%
+    mutate(long = paste0("-", long)) %>%
+    st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
+    bind_cols(ga_libraries) %>%
+    st_join(nice_districts %>% filter(state == "Georgia"), left = FALSE) 
+
+ca_libraries2 <- map(ca_libraries$address, clean_coords) %>%
+    bind_rows() %>%
+    mutate(long = paste0("-", long)) %>%
+    st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
+    bind_cols(ca_libraries) %>%
+    st_join(nice_districts %>% filter(state == "California"), left = FALSE)
+
+
+# mn_libraries2 <- map(mn_libraries$address, clean_coords) %>%
+#     bind_rows() %>%
+#     mutate(long = paste0("-", long)) %>%
+#     st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
+#     bind_cols(mn_libraries) %>%
+#     st_join(nice_districts %>% filter(state == "Minnesota"), left = FALSE)
+
+```
+
+
+# Interactive map of congressional districts
+Now that we have all that data, we can make an interactive map using Leaflet for all the information above:
+
+```{r cache=TRUE}
+pal <- colorBin("viridis", nice_districts$summer_temp, pretty = TRUE)
+
+
+leaflet(nice_districts) %>%
+    addProviderTiles(providers$Stamen.TonerLite) %>%
+    addPolygons(weight = 1, smoothFactor = 0.5, color = "black", 
+                opacity = 1.0, fillOpacity = 0.5, 
+                fillColor = ~pal(summer_temp), 
+                highlightOptions = highlightOptions(color = "white", weight = 2, 
+                                                    bringToFront = TRUE),
+                label = paste(nice_districts$congress_district, ", ", "Density: ",
+                              nice_districts$cluster, ", ", "Cloudy days: ",
+                              nice_districts$annual_cloudy, ", ", "Avg summer temps: ",
+                              round(nice_districts$summer_temp, 0), sep = "")) %>%
+    addCircles(data = trails_map, weight = 1, radius = 1000, fillColor = "palegreen4", 
+               color = "palegreen4") %>%
+    addCircles(data = ga_libraries2, weight = 1, radius = 1000, fillColor = "coral", 
+               color = "coral") %>%
+    addCircles(data = ca_libraries2, weight = 1, radius = 1000, fillColor = "coral",
+               color = "coral")
+
+```
+
+# Census tract data
+Finally, we also might want to have data on a more specific geographic level -- census tracts. We can get data on housing costs, life expectancy, and walk scores at the census tract level, and join that data with the congressional districts data. 
+
+### Housing cost data
+Housing cost data comes from [Citylab](https://github.com/theatlantic/citylab-data/tree/master/housing-burden). We can get a better idea of where in the cities we're interested in are super expensive. 
+
+```{r }
+housing_cost <- st_read("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\housing_burden_tracts.geojson")
+
+housing_no_geom <- housing_cost %>%
+    st_drop_geometry() %>%
+    janitor::clean_names()
+
+housing_filtered <- housing_cost %>%
+    janitor::clean_names() %>%
+    select(geoid, med_homecost)
+
+```
+
+### Life expectancy data
+The CDC also has a [dataset](https://www.cdc.gov/nchs/nvss/usaleep/usaleep.html) of life expectancy data by census tract, which has been used a proxy for quality of life in each area. 
+
+```{r message=FALSE}
+life_expectancy <- read_csv("C:\\Users\\chad.peltier\\OneDrive - IHS Markit\\Desktop\\data_projects\\Public-Policy-Politics\\life_expectancy.csv") %>%
+    janitor::clean_names() %>%
+    select(tract_id, e_0)
+
+housing_le <- housing_filtered %>%
+    left_join(life_expectancy, by = c("geoid" = "tract_id")) %>%
+    st_transform(crs = 4326)
+
+## join with acs data
+us_acs_tracts <- housing_le %>%
+    st_join(us_acs10) %>%
+    filter(!is.na(state))
+
+us_no_geom_tracts <- us_acs_tracts %>%
+    st_drop_geometry()
+
+## filter to nice tracts 
+nice_tracts <- us_acs_tracts %>%
+    filter(congress_district %in% nice_districts_no_geom$congress_district)
+
+nice_tracts_no_geom <- nice_tracts %>%
+    st_drop_geometry()
+
+```
+
+
+```{r}
+
+cities_local <- c("North Druid Hills", "Decatur", "Clarkston", "Duluth")
+
+
+us_acs_tracts %>% 
+    filter(state %in% c("Georgia")) %>%
+    ggplot() +
+    geom_sf() +
+    geom_sf(data = nice_tracts, aes(fill = e_0)) + 
+    geom_sf_label(data = us_cities2 %>% filter(city %in% cities_local), aes(label = city)) +
+    geom_sf(data = ga_libraries2, color = "coral2") + 
+    geom_sf(data = trails_map, color = "black") + 
+    viridis::scale_fill_viridis(direction = -1) +
+    coord_sf(xlim = c(-84.45, -84.2), ylim = c(33.7, 33.9)) +
+    ggtitle("Life Expectancy in Good Census Tracts in Georgia") +
+    theme_void()
+
+```
+
+
+
+
+# Walk scores 
+Finally, walkability is really important. Where we live now is great, and being able to walk around our neighborhood is really nice, but it's pretty difficult to walk to grocery stores (or the library without cutting through the fence). 
+
+So we can add data from the [Walk Score API](https://www.walkscore.com/professional/api.php) and then estimate the walkability of each census tract by calculating the Walk Score for each tract's centroid. We can't do this for everywhere because the API limits you to 2500 calls / day, so we'll just do Atlanta and San Diego.
+
+Note that because the opencage API is limited to 2500 calls a day (which are used by by the code above), I don't actually evaluate these code chunks. When I originally put this code together, I ran all of the opencage geocoding chunks across multiple days. Nevertheless, the code is below for anyone interested!  
+
+```{r eval=FALSE}
+## function to get address from opencage
+
+get_address <- function(x, y){
+    opencage_reverse(latitude = x, longitude = y)$results[1,72] 
+}
+
+possibly_get_address <- possibly(get_address, otherwise = NULL)
+
+
+
+test <- opencage_reverse(latitude = 33.72962, longitude = -84.92070)
+
+
+## get tracts in GA
+nice_tracts_ga <- nice_tracts %>%
+    filter(state == "Georgia") %>%
+    select(congress_district, geometry) %>%
+    st_centroid() %>%
+    st_coordinates() %>%
+    as.data.frame() %>%
+    bind_cols(nice_tracts %>% filter(state == "Georgia")) %>%
+    rename(long = X, lat = Y) 
+
+tracts_test <- map2(nice_tracts_ga$lat, nice_tracts_ga$long, possibly_get_address)
+
+tracts_test2 <- tracts_test %>%
+    unlist() %>%
+    tibble() %>%
+    rename(address = ".") %>%
+    bind_cols(nice_tracts_ga) %>%
+    select(1:24) %>%
+    mutate(address = str_remove_all(address, "House Number Not Found Street Not Found"),
+           address = str_remove_all(address, ", United States of America"),
+           address = str_remove_all(address, ","),
+           address = str_trim(address),
+           address = str_replace_all(address, "\\s", "%20"))
+
+
+## add walk scores 
+get_walkscore <- function(address, lat, long){
+    request <- GET(url = paste0("https://api.walkscore.com/score?format=json&address=",
+                                address, "&lat=", lat, "&lon=", long,
+                                "&transit=1&bike=1&wsapikey=", walkscore_key))
+    response <- content(request, as = "text")
+    
+    response %>%
+        fromJSON() %>%
+        tibble() 
+    
+}
+
+walkscores_ga <- pmap(list(tracts_test2$address, tracts_test2$lat, tracts_test2$long),
+                      get_walkscore)
+
+walkscores_ga2 <- walkscores_ga %>%
+    enframe() %>%
+    unnest_wider(value) %>%
+    rename(walkscore = ".") %>%
+    unnest_wider(walkscore) %>%
+    select(walkscore, description) %>%
+    bind_cols(tracts_test2)
+
+walkscores_ga3 <- nice_tracts %>%
+    select(geoid) %>%
+    inner_join(walkscores_ga2, by = "geoid")
+
+
+```
+
+And for San Diego: 
+
+```{r eval=FALSE}
+
+nice_tracts_sd <- nice_tracts %>%
+    filter(congress_district %in% c("CA 50", "CA 51", "CA 52", "CA 53")) %>%
+    select(congress_district, geometry) %>%
+    st_centroid() %>%
+    st_coordinates() %>%
+    as.data.frame() %>%
+    bind_cols(nice_tracts %>% filter(congress_district %in% c("CA 50", "CA 51", "CA 52", "CA 53"))) %>%
+    rename(long = X, lat = Y) 
+
+tracts_sd <- map2(nice_tracts_sd$lat,nice_tracts_sd$long, possibly_get_address)
+
+tracts_sd2 <- tracts_sd %>%
+    unlist() %>%
+    tibble() %>%
+    rename(address = ".") %>%
+    bind_cols(nice_tracts_sd) %>%
+    select(1:24) %>%
+    mutate(address = str_remove_all(address, "House Number Not Found Street Not Found"),
+           address = str_remove_all(address, ", United States of America"),
+           address = str_remove_all(address, ","),
+           address = str_trim(address), 
+           address = str_replace_all(address, "\\s", "%20")) %>%
+    
+
+
+walkscores_sd <- pmap(list(tracts_sd2$address, tracts_sd2$lat, tracts_sd2$long),
+                      get_walkscore)
+
+walkscores_sd2 <- walkscores_sd %>%
+    enframe() %>%
+    unnest_wider(value) %>%
+    rename(walkscore = ".") %>%
+    unnest_wider(walkscore) %>%
+    select(walkscore, description) 
+
+walkscores_sd3 <- nice_tracts %>%
+    select(geoid) %>%
+    inner_join(walkscores_sd2, by = "geoid")
+```
+
+
+### Tracts maps for Atlanta and San Diego
+Finally, we can make some maps to visualize the tracts data:
+
+```{r eval=FALSE}
+cities_local <- c("North Druid Hills", "Decatur", "Clarkston", "Duluth")
+cities_local2 <- c("San Diego", "Escondido", "Irvine")
+
+
+us_acs_tracts %>% filter(state %in% c("Georgia")) %>%
+    ggplot() +
+    geom_sf() +
+    geom_sf(data = walkscores_ga3, aes(fill = walkscore)) + 
+    geom_sf_label(data = us_cities2 %>% filter(city %in% cities_local), aes(label = city)) + 
+    geom_sf(data = ga_libraries2, color = "coral2") + 
+    geom_sf(data = trails_map, color = "black") + 
+    viridis::scale_fill_viridis(direction = -1) +
+    coord_sf(xlim = c(-84.45, -84.2), ylim = c(33.7, 33.9)) +
+    ggtitle("Walk scores in good districts in Georgia") +
+    theme_void()
+
+
+us_acs_tracts %>% filter(state %in% c("California"))%>%
+    ggplot() +
+    geom_sf() + 
+    geom_sf(data = walkscores_sd3, aes(fill = walkscore)) + 
+    geom_sf_label(data = us_cities2 %>% filter(city %in% cities_local2), aes(label = city)) + 
+    viridis::scale_fill_viridis(direction = -1) +
+    geom_sf(data = ca_libraries2, color = "coral2") + 
+    geom_sf(data = trails_map, color = "black") + 
+    coord_sf(xlim = c(-117.4, -116.8), ylim = c(32.52, 33.15)) +
+    theme(panel.background = element_rect(fill = "aliceblue")) +
+    ggtitle("Walk scores in good districts in San Diego") +
+    theme_void()
+
+
+ggplot(us_acs_tracts %>% filter(state == "Georgia")) + 
+    geom_sf() +
+    theme_void() +
+    geom_sf(data = us_acs_tracts %>% filter(state == "Georgia"), aes(fill = e_0)) +
+    geom_sf_text(data = us_cities2 %>% filter(city %in% cities_local), aes(label = city)) + 
+    viridis::scale_fill_viridis(direction = -1) +
+    coord_sf(xlim = c(-84.45, -84.2), ylim = c(33.7, 33.9)) + 
+    ggtitle("Life expectancy by census tract in Georgia") + 
+    theme_void()
+
+
+
+```
+
+
+
+

@@ -1,0 +1,429 @@
+---
+title: Analyzing Sturgill Simpson's Music
+author: Chad Peltier
+date: '2020-11-05'
+slug: analyzing-sturgill-simpson-s-music
+categories:
+  - NLP
+  - R
+tags:
+  - NLP
+  - Music
+---
+
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+
+
+<p>Sturgill Simpson is frequently described as part of the new era of <a href="http://grantland.com/hollywood-prospectus/the-new-age-outlaw-country-of-lydia-loveless-and-sturgill-simpson/">outlaw country musicians</a>, a group that includes musicians like Tyler Childers, Chris Stapleton, Colter Wall, and Jason Isbell. Sturgill in particular has been at the forefront of this movement in alternative country and Americana music, winning a Grammy in 2015 for his second album <em>Metamodern Sounds in Country Music</em> among other accolades at the US and UK Americana Music Awards. Rolling Stone questioned <a href="https://www.rollingstone.com/music/music-country/is-sturgill-simpson-country-musics-savior-not-if-he-can-help-it-55612/">whether he is country music’s savior</a>.</p>
+<p>He is also one of my favorite artists. I’ve been wanting to do a deeper dive into Sturgill’s music, and thankfully Charlie Thompson’s <a href="https://github.com/charlie86/spotifyr">spotifyr package</a> makes that easy.
+This project is heavily inspired both by <a href="https://www.rcharlie.com/post/fitter-happier/">Charlie’s analysis of Radiohead</a> and by Simran Vatsa’s <a href="https://medium.com/@simranvatsa5/taylor-f656e2a09cc3">analysis of Taylor Swift’s music</a>.</p>
+<p>Alright, let’s load the packages we’ll need first.</p>
+<pre class="r"><code>library(spotifyr)
+library(geniusr)
+library(tidyverse)
+library(ggridges)
+library(ggthemes)
+library(tidytext)
+library(textdata)
+library(tidymodels)
+library(topicmodels)</code></pre>
+<div id="getting-and-cleaning-data" class="section level1">
+<h1>Getting and cleaning data</h1>
+<p>First we’ll need to pull track data from Spotify using spotifyr. I then filtered down to unique track names.</p>
+<pre class="r"><code>sturgill &lt;- spotifyr::get_artist_audio_features(&quot;Sturgill Simpson&quot;)
+
+sturgill &lt;- sturgill %&gt;%
+    rename(song_name = track_name) %&gt;% 
+    mutate(song_name_clean = str_to_lower(song_name),
+           song_name_clean = str_replace_all(song_name_clean, &quot;[:punct:]&quot;, &quot; &quot;)) %&gt;%
+    distinct(album_name, song_name, .keep_all = TRUE) %&gt;%
+    filter(!album_id %in% c(&quot;6ItcaLLriMbKewC2Kd76Vr&quot;))</code></pre>
+</div>
+<div id="connect-with-genius-lyrics-data" class="section level1">
+<h1>Connect with Genius lyrics data</h1>
+<p>Then we’ll go ahead and connect the track information with lyrics from Genius.</p>
+<pre class="r"><code>strugill_id &lt;- search_artist(&quot;Sturgill Simpson&quot;) %&gt;%
+    pull(artist_id)
+
+strugill_songs &lt;- get_artist_songs_df(strugill_id)
+
+sturgill_lyrics &lt;- map(strugill_songs$song_id, get_lyrics_id) %&gt;%
+    bind_rows()
+
+sturgill_lyrics2 &lt;- sturgill_lyrics %&gt;%
+    select(song_name, line, song_id) %&gt;%
+    group_by(song_id, song_name) %&gt;%
+    dplyr::summarize(line = paste0(line, collapse = &quot; &quot;)) %&gt;%
+    mutate(song_name_clean = str_to_lower(song_name),
+           song_name_clean = str_replace_all(song_name_clean, &quot;[:punct:]&quot;, &quot; &quot;))
+
+
+
+## join with sturgill track info from spotify
+
+album_order &lt;- c(&quot;Cuttin&#39; Grass - Vol. 1 (Butcher Shoppe Sessions)&quot;,  &quot;SOUND &amp; FURY&quot;, &quot;A Sailor&#39;s Guide to Earth&quot;,  &quot;Metamodern Sounds in Country Music&quot;, &quot;High Top Mountain&quot;)
+
+
+sturgill_combined &lt;- sturgill %&gt;%
+    left_join(sturgill_lyrics2, by = c(&quot;song_name_clean&quot;)) %&gt;%
+    select(-song_name_clean, - song_name.y) %&gt;%
+    rename(song_name = song_name.x) %&gt;% 
+    filter(!is.na(line)) %&gt;%
+    mutate(album_name = factor(album_name, levels = album_order)) </code></pre>
+</div>
+<div id="valence-by-album" class="section level1">
+<h1>Valence by album</h1>
+<p>While broadly fitting within the Americana genre (to the extent that Americana has hard boundaries), Sturgill’s music has evolved throughout his five albums, and that’s clearly evident by looking at the Spotify song features.</p>
+<p>We might expect his latest album, <em>SOUND &amp; FURY</em> to be a little more negative and higher energy than his others. Sturgill descibed it to <a href="https://www.kcrw.com/music/shows/todays-top-tune/sturgill-simpson-sing-along">KCRW</a> by saying, “We went in without any preconceived notions and came out with a really sleazy, steamy rock n roll record. It’s definitely my most psychedelic, and also my heaviest. I had this idea that it’d be really cool to animate some of these songs, and we ended up with a futuristic, dystopian, post-apocalyptic, samurai film.”</p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    pivot_longer(danceability:tempo) %&gt;% 
+    filter(!name %in% c(&quot;mode&quot;, &quot;liveness&quot;)) %&gt;% 
+    ggplot(aes(x = value, y = album_name, fill = album_name)) +
+        geom_density_ridges() +
+        facet_wrap(~ name, scales = &quot;free_x&quot;) + 
+        theme_classic() +
+        theme(legend.position = &quot;none&quot;) + 
+        labs(y = NULL)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-1.png" width="672" /></p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    arrange(desc(valence)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(song_name = factor(song_name, unique(song_name)),
+           song_name = fct_rev(song_name)) %&gt;%
+    ggplot(aes(y = song_name, x = valence, color = album_name)) +
+    geom_segment(aes(x = 0, xend = valence, y = song_name, yend = song_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;Valence&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-2.png" width="672" /></p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    arrange(desc(danceability)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(song_name = factor(song_name, unique(song_name)),
+           song_name = fct_rev(song_name)) %&gt;%
+    ggplot(aes(y = song_name, x = danceability, color = album_name)) +
+    geom_segment(aes(x = 0, xend = danceability, y = song_name, yend = song_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;danceability&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-3.png" width="672" /></p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    arrange(desc(energy)) %&gt;%
+    #slice_head(n = 20) %&gt;%
+    mutate(song_name = factor(song_name, unique(song_name)),
+           song_name = fct_rev(song_name)) %&gt;%
+    ggplot(aes(y = song_name, x = energy, color = album_name)) +
+    geom_segment(aes(x = 0, xend = energy, y = song_name, yend = song_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_light() +
+    labs(y = NULL, x = &quot;energy&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-4.png" width="672" /></p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    ggplot(aes(x = energy, y = valence, label = song_name, color = album_name)) + 
+    geom_point(color = &quot;#E32636&quot;, alpha = 0.7, size = 2) + 
+    ggrepel::geom_text_repel(size = 3, ) +
+    theme_classic() +
+    theme(legend.position = &quot;none&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-5.png" width="672" /></p>
+<p>The final ridgeline plot shows Sturgill’s albums by valence, with the peaks showing the highest frequency of valence scores.</p>
+<p>This absolutely tracks with expectations – <em>SOUND &amp; FURY</em> is his only right-tailed album and his most negative, while <em>Metamodern Sounds in Country Music</em> is left-tailed (generally more positive). Both <em>High Top Mountain</em> and <em>A Sailor’s Guide to Earth</em> are bi-modal, with relatively even balances of positive and negative songs. The average valence ratings by album also support what the ridgeline plots show – that <em>SOUND &amp; FURY</em> is the most negative while <em>Metamodern Sounds in Country Music</em> is the most positive… of his first four albums.</p>
+<p><em>SOUND &amp; FURY</em> is both more negative and higher energy than his other albums – something we might expect from an album Sturgill described as “really sleazy, steamy rock n roll record” with an accompanying “futuristic, dystopian, post-apocalyptic” anime movie.</p>
+<p>In terms of individual tracks on the first 4 albums, <em>SOUND &amp; FURY’s</em> “Mercury in Retrograde” is by far his highest-valence song, a funky 70-ish song that sharply contrasts (at least sonically) with anything on <em>High Top Mountain</em>. “Fastest Horse in Town”, “Welcome to Earth (Pollywog)” and “Oh Sarah” are his three most negative songs, all with a valence rating under 0.1.</p>
+<p>But we almost need to put <em>Cuttin Grass</em> in a category of its own when it comes to valence, danceability, and acousticness. Since it is an album of bluegrass covers of his own music, it’s interesting to see that it is so much happier and danceable than his other albums. Let’s do a direct comparison between the same songs’ regular vs. bluegrass versions:</p>
+<pre class="r"><code>sturgill_bg &lt;- sturgill_combined %&gt;%
+    filter(str_detect(album_name, &quot;Cuttin&quot;)) %&gt;%
+    pull(song_name) 
+
+
+sturgill_combined %&gt;%
+    filter(song_name %in% sturgill_bg) %&gt;%
+    arrange(song_name) %&gt;%
+    select(song_name, album_name, valence, danceability, acousticness) %&gt;%
+    mutate(album_name = fct_lump_min(album_name, min = 10)) %&gt;%
+    group_by(song_name) %&gt;%
+    mutate(song_count = n()) %&gt;%
+    ungroup() %&gt;%
+    filter(song_count == 2) %&gt;%
+    arrange(desc(valence)) %&gt;% 
+    mutate(song_name = factor(song_name, rev(unique(song_name)))) %&gt;% 
+    ggplot(aes(y = song_name, x = valence, color = album_name)) +
+    geom_segment(aes(x = 0, xend = valence, y = song_name, yend = song_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_classic() +
+    labs(y = NULL, x = &quot;valence&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9)) +
+    xlim(0,1)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<pre class="r"><code>sturgill_combined %&gt;%
+    filter(song_name %in% sturgill_bg) %&gt;%
+    arrange(song_name) %&gt;%
+    select(song_name, album_name, valence, danceability, acousticness) %&gt;%
+    mutate(album_name = fct_lump_min(album_name, min = 10)) %&gt;%
+    group_by(song_name) %&gt;%
+    mutate(song_count = n()) %&gt;%
+    ungroup() %&gt;%
+    filter(song_count == 2) %&gt;%
+    arrange(desc(danceability)) %&gt;% 
+    mutate(song_name = factor(song_name, rev(unique(song_name)))) %&gt;% 
+    ggplot(aes(y = song_name, x = danceability, color = album_name)) +
+    geom_segment(aes(x = 0, xend = danceability, y = song_name, yend = song_name)) +
+    geom_point(size = 3, alpha = 0.7) +
+    theme_classic() +
+    labs(y = NULL, x = &quot;danceability&quot;) + 
+    theme(panel.grid.major.y = element_blank(),
+          panel.border = element_blank(),
+          axis.ticks.y = element_blank(), 
+          text = element_text(size=9)) </code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-2.png" width="672" /></p>
+<p>It’s pretty clear from the charts above that Strugill’s bluegrass is both more danceable and happier than his regular versions of songs! In fact, the <em>Cuttin’ Grass</em> version is happier in all but three songs!</p>
+</div>
+<div id="compare-with-waylon-and-merle" class="section level1">
+<h1>Compare with Waylon and Merle</h1>
+<p>From his early days, Sturgill has been compared with the early generation of outlaw country musicians. Most critics have compared his voice to Waylon Jennings, although Sturgill counts Merle Haggard as a larger influence.</p>
+<p>Using spotifyr we can look for similarities in the three artists’ sounds. We’ll focus on Sturgill’s <em>High Top Mountain</em>, as it is by far his most traditional country album.</p>
+<p>For the other two artists, who have far more songs in their discographies, it was a greater challenge to find a representative subset of their music for comparison. I settled on the Spotify “This is…” playlists, that Spotify often puts together for notable musicians, which collects the artists’ most important (and hopefully representative) songs. I then joined the playlist data with the artists’ track data to incorporate the sonic variables like energy, valence, and danceability.</p>
+<p>In subsequent analysis, we might use Sturgill’s “This is…” playlist for an even more apples-to-apples comparison, although my guess is that this first look might minimize the differences between the artists.</p>
+<pre class="r"><code># Pull track data for Merle and Waylon based from their Spotify &quot;This is...&quot; playlists
+merle &lt;- get_artist_audio_features(&quot;Merle Haggard&quot;)
+merle_thisis &lt;- get_playlist_tracks(&quot;37i9dQZF1DWU1xHgjMaSpW&quot;)
+merle_thisis &lt;- merle_thisis %&gt;%
+    inner_join(merle, by = c(&quot;track.id&quot; = &quot;track_id&quot;))
+
+waylon &lt;- get_artist_audio_features(&quot;Waylon Jennings&quot;)
+waylon_thisis &lt;- get_playlist_tracks(&quot;37i9dQZF1DZ06evO4si4pO&quot;)
+waylon_thisis &lt;- waylon_thisis %&gt;%
+    inner_join(waylon, by = c(&quot;track.id&quot; = &quot;track_id&quot;))
+
+# Combine with Sturgill&#39;s High Top Mountain
+artist_comp &lt;- merle_thisis %&gt;%
+    bind_rows(waylon_thisis) %&gt;%
+    select(artist_name, track_name, energy, valence, danceability) 
+
+sturgill_comp &lt;- sturgill %&gt;%
+    filter(album_name == &quot;High Top Mountain&quot;) %&gt;%
+    select(artist_name, track_name = song_name, energy, valence, danceability)
+
+artist_comp &lt;- artist_comp %&gt;%
+    bind_rows(sturgill_comp)
+
+# Create charts of energy and valence
+artist_comp %&gt;%
+    ggplot(aes(x = energy, y = artist_name, fill = ..x..)) + 
+        geom_density_ridges_gradient(scale = 0.9) + 
+        scale_fill_gradient(low = &quot;white&quot;, high = &quot;red3&quot;) + 
+        theme_classic() + 
+        theme(panel.background = element_rect(fill = &quot;white&quot;)) +
+        theme(plot.background = element_rect(fill = &quot;white&quot;)) +
+        theme(legend.position = &quot;none&quot;) + 
+        ggtitle(&quot;Song Energy by Artist&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-6-1.png" width="672" /></p>
+<pre class="r"><code>artist_comp %&gt;%
+    ggplot(aes(x = valence, y = artist_name, fill = ..x..)) + 
+        geom_density_ridges_gradient(scale = 0.9) + 
+        scale_fill_gradient(low = &quot;white&quot;, high = &quot;red3&quot;) + 
+        theme_classic() + 
+        theme(panel.background = element_rect(fill = &quot;white&quot;)) +
+        theme(plot.background = element_rect(fill = &quot;white&quot;)) +
+        theme(legend.position = &quot;none&quot;) + 
+        ggtitle(&quot;Song Valence (Happiness) by Artist&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-6-2.png" width="672" /></p>
+<p>There are some fairly clear differences between the three artists despite us only looking at Sturgill’s first album. In the plot of song energy, Sturgill’s distribution is clearly left-tailed and higher energy, Merle has the larger percentage of lower-energy songs, and Waylon’s songs are more concentrated and mid-energy.</p>
+<p>Waylon’s songs are also happier, with less variation in valence than the other two artists. Similar to the distribution of Merle Haggard’s song energy levels, there is wide variation in valence of his songs. Sturgill’s <em>High Top Mountain</em> is bi-modal in valence. It has a similar happiness range as Merle’s greatest hits, but a higher concentration of happy and unhappy songs.</p>
+</div>
+<div id="lyrics-analysis---nrc-by-album" class="section level1">
+<h1>Lyrics analysis - NRC by album</h1>
+<p>Next we can look at lyrics by album according to the NRC leixcon, which sorts words into eight categories – joy, anticipation, trust, surprise, sadness, anger, disgust and fear.</p>
+<pre class="r"><code>tidy_sturgill &lt;- sturgill_combined %&gt;%
+    unnest_tokens(word, line) %&gt;%
+    select(album_name, song_name, word) %&gt;%
+    anti_join(stop_words) %&gt;%
+    inner_join(get_sentiments(&quot;nrc&quot;)) %&gt;%
+    filter(!sentiment %in% c(&quot;positive&quot;, &quot;negative&quot;))
+
+sentiment_sturgill &lt;- tidy_sturgill %&gt;%
+    group_by(album_name, sentiment) %&gt;%
+    count(album_name, sentiment)
+
+sentiment_sturgill_albums &lt;- sentiment_sturgill %&gt;%
+    group_by(album_name) %&gt;%
+    summarise(total_sentiments = sum(`n`))
+
+sentiment_sturgill &lt;- sentiment_sturgill %&gt;%
+    left_join(sentiment_sturgill_albums, by = &quot;album_name&quot;) %&gt;%
+    mutate(perc = round(n/total_sentiments,3)) %&gt;%
+    select(-c(total_sentiments, `n`)) 
+
+
+## bar plot
+ggplot(sentiment_sturgill, aes(y = sentiment, x = perc, fill = album_name)) + 
+    geom_bar(stat = &quot;identity&quot;, position = position_dodge()) +
+    theme_classic()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-7-1.png" width="672" /></p>
+<p>Across his albums, surprise, disgust, and anger are fairly infrequent emotions expressed in his lyrics, with relatively high levels of fear, joy, sadness, and trust.</p>
+</div>
+<div id="lyrics-analysis---nrc-by-track" class="section level1">
+<h1>Lyrics analysis - NRC by track</h1>
+<pre class="r"><code>sentiment_sturgill_track &lt;- tidy_sturgill %&gt;%
+    group_by(song_name, sentiment) %&gt;%
+    count(song_name, sentiment) 
+
+sentiment_sturgill_track2 &lt;- sentiment_sturgill_track %&gt;%
+    group_by(song_name) %&gt;%
+    summarise(total_sentiments = sum(`n`)) 
+
+sentiment_sturgill_track &lt;- sentiment_sturgill_track %&gt;%
+    left_join(sentiment_sturgill_track2, by = &quot;song_name&quot;) %&gt;%
+    mutate(perc = round(n/total_sentiments,3)) %&gt;%
+    select(-c(total_sentiments, `n`)) 
+
+
+sentiment_sturgill_track %&gt;%
+    filter(sentiment == &quot;sadness&quot;) %&gt;%
+    arrange(desc(perc)) %&gt;%
+    head(10)</code></pre>
+<pre><code>## # A tibble: 10 x 3
+## # Groups:   song_name, sentiment [10]
+##    song_name                        sentiment  perc
+##    &lt;chr&gt;                            &lt;chr&gt;     &lt;dbl&gt;
+##  1 Welcome to Earth (Pollywog)      sadness   0.375
+##  2 Old King Coal                    sadness   0.333
+##  3 Remember To Breathe              sadness   0.333
+##  4 Railroad of Sin                  sadness   0.312
+##  5 Breakers Roar                    sadness   0.3  
+##  6 Brace for Impact (Live a Little) sadness   0.28 
+##  7 Voices                           sadness   0.269
+##  8 Panbowl - Bonus Track            sadness   0.259
+##  9 I Wonder                         sadness   0.238
+## 10 All the Pretty Colors            sadness   0.231</code></pre>
+<p>We can also look at which songs have the highest percentage of sad lyrics. One third of “Old King Coal” and “Remember to Breathe” have words that express sadness according to the nrc lexicon. That definitely tracks with “Old King Coal” in particular – a song about economic struggles and opioid use in Appalachian coal communities. Here are the first two verses:</p>
+<blockquote>
+<p>Many a man down in these here hills
+Made a living off that old black gold
+Now there ain’t nothing but welfare and pills
+And the wind never felt so cold
+I’ll be one of the first in a long long line
+Not to go down from that old black lung
+My death will be slower than the rest of my kind
+And my life will be sadder than the songs they all sung</p>
+</blockquote>
+<p>Yeah, those are some sad lyrics.</p>
+</div>
+<div id="compare-valence-vs.-lyrics-analysis" class="section level1">
+<h1>Compare valence vs. lyrics analysis</h1>
+<p>Finally, we can compare lyrical sentiment with sonic features like valence to see whether Sturgill’s songs are typically cohesive in the sense that sad-sounding songs also have sad lyrics, and vice versa. In cohesive songs we might expect valence and the nrc sentiment to be closely related.</p>
+<p>To test this, we can combine the original spotifyr data frame with the track sentiment analysis data frame.</p>
+<pre class="r"><code>sentiment_sturgill_track_sum &lt;- sentiment_sturgill_track %&gt;%
+    group_by(song_name) %&gt;%
+    summarize(neg_emotions = sum(perc[sentiment == &quot;anger&quot; | sentiment == &quot;disgust&quot; |
+                                        sentiment == &quot;fear&quot; | sentiment == &quot;sadness&quot;]))
+
+sentiment_sturgill_combined &lt;- sturgill %&gt;%
+    select(song_name, valence, energy) %&gt;%
+    inner_join(sentiment_sturgill_track_sum, by = &quot;song_name&quot;)
+
+sentiment_sturgill_combined %&gt;%
+    ggplot(aes(x = neg_emotions, y = valence, label = song_name)) +
+    geom_point() + 
+    ggrepel::geom_text_repel(size = 3) + 
+    theme(panel.background = element_rect(fill = &quot;white&quot;)) +
+    theme(plot.background = element_rect(fill = &quot;white&quot;)) +
+    xlab(&quot;Percentage Lyrics with Negative Emotions&quot;) + 
+    ylab(&quot;Happiness (Valence score)&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>As the resulting plot shows, there appears to be little relationship between a song’s lyrics and how happy or sad the song itself is. That makes for interesting contrasts between lyrical sentiment and a song’s feeling.</p>
+<p>For example, “Mercury in Retrograde” is both high-valence and has a high percentage of negative emotions expressed in its lyrics. While the music itself is bouncy and funky, the lyrics express disdain at the fakeness and self-serving mentality of people in the music business:</p>
+<blockquote>
+<p>Living the dream makes a man wanna scream
+Light a match and burn it all down
+Head back home to the mountain
+Far away from all of the pull
+Oh, all the journalists and sycophants wielding their brands
+And all the traveling trophies and award show stands
+And all the haters wishing they was in my band
+Sorry, boys, the bus is plumb full
+Mercury must be in retrograde again
+But at least it’s not just hangin’ around, pretendin’ to be my friend
+Oh, the road to Hell is paved with cruel intention
+If it’s not nuclear war, it’s gonna be a divine intervention</p>
+</blockquote>
+</div>
+<div id="log-odds" class="section level1">
+<h1>Log odds</h1>
+<p>Let’s see what the log odds for the lyrics in each album look like. Our corpus is pretty small, but this may be interesting nevertheless!</p>
+<pre class="r"><code>library(tidylo)
+
+sturgill_combined %&gt;%
+    unnest_tokens(word, line) %&gt;%
+    select(album_name, song_name, word) %&gt;%
+    filter(!str_detect(album_name, &quot;Cuttin&quot;)) %&gt;% 
+    anti_join(stop_words, by = &quot;word&quot;) %&gt;%
+    add_count(album_name, name = &quot;total_words&quot;) %&gt;%
+    group_by(album_name) %&gt;% 
+    count(word, sort = TRUE) %&gt;% 
+    mutate(word = str_remove_all(word, &quot;[:punct:]&quot;)) %&gt;%
+    bind_log_odds(set = album_name, feature = word, n= n) %&gt;%
+    group_by(album_name) %&gt;% 
+    top_n(10) %&gt;% 
+    ungroup() %&gt;%
+    mutate(word = factor(word), 
+           word = fct_reorder(word, log_odds_weighted)) %&gt;% 
+    ggplot(aes(x = log_odds_weighted, y = word, fill = album_name)) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~album_name, scales = &quot;free_y&quot;) +
+    theme_minimal()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+<p>I think the above gives a decent sense of the lyrical variation in each album. <em>High Top Mountain</em> is more traditionally country, with words like railroad, train, smoke, and plum. <em>Metamodern Sounds</em> has more psychadelic lyrics like voices, light, and flowers. And most distinctively, <em>SOUND &amp; FURY</em> has crazier, dystopian lyrics like worried, mars, clocmaker, and star.
+# Topic Modeling
+Finally, we can do a little topic modeling to see what categories of lyrics Sturgill often writes about.</p>
+<pre class="r"><code>sturgill_dtm &lt;- sturgill_combined %&gt;%
+    rename(text = line) %&gt;% 
+    unnest_tokens(word, text) %&gt;%
+    anti_join(stop_words, by = &quot;word&quot;) %&gt;%
+    count(song_name, word, sort = TRUE) %&gt;%
+    cast_dtm(song_name, word, n)
+
+sturgill_lda &lt;- LDA(sturgill_dtm, k = 3, control = list(seed = 123))
+
+
+
+sturgill_topics &lt;- sturgill_lda %&gt;%
+    tidy(matrix = &quot;beta&quot;)
+
+
+sturgill_top_terms &lt;- sturgill_topics %&gt;%
+    group_by(topic) %&gt;%
+    top_n(10, abs(beta)) %&gt;%
+    ungroup() %&gt;%
+    arrange(topic, desc(beta))
+
+
+sturgill_top_terms %&gt;%
+    mutate(term = reorder_within(term, beta, topic)) %&gt;%
+    ggplot(aes(beta, term, fill = factor(topic))) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~ topic, scales = &quot;free&quot;) +
+    scale_y_reordered()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-11-1.png" width="672" /></p>
+<p>From the above, we see 3 fairly distinct topics:</p>
+<ol style="list-style-type: decimal">
+<li>Love (with words like love, heart, likes, and eyes)</li>
+<li>Time (including time and life)</li>
+<li>Anticipation (gonna, hit [the] road, start, time)</li>
+</ol>
+</div>

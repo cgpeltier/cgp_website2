@@ -1,0 +1,356 @@
+---
+title: Comparing 2020 Democratic Candidates' Primary Debate Performances
+author: Chad Peltier
+date: '2020-12-04'
+slug: comparing-2020-democratic-candidates-primary-debate-performances
+categories:
+  - NLP
+  - R
+tags:
+  - NLP
+  - Politics
+---
+
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+
+
+<p>This project is intended to analyze the 2020 Democratic Presidential candidates’ performances in the eleven debates.</p>
+<p>We’ll start off by creating a tibble of the transcripts of the debates, with a row for each response given by a candidate.</p>
+<p>I scraped the transcripts from various sources, because no single source seemed to have transcripts for every debate. Unfortunately, that meant that the regex varied by debated, and so creating a function to automate this process would be much more difficult.</p>
+<pre class="r"><code>library(tidyverse)
+library(rvest)
+library(httr)
+library(lubridate)
+library(tidytext)
+library(tidylo)
+library(tidymodels)
+library(textrecipes)
+library(topicmodels)
+library(vip)</code></pre>
+<pre class="r"><code>## Debate 1 pt 1 - Miami
+html &lt;- read_html(&quot;https://www.nytimes.com/2019/06/26/us/politics/democratic-debate-transcript.html&quot;)
+
+debate1_1 &lt;- html_nodes(html, &quot;.StoryBodyCompanionColumn&quot;)
+debate1_1 &lt;- tibble(transcript = html_text(debate1_1, trim = TRUE))
+
+debate1_1 &lt;- debate1_1 %&gt;%
+    mutate(debate = 1) %&gt;%
+    separate_rows(transcript, sep = &quot;[\\?\\.\\)\\’a-z](?=[A-Z]{2,})&quot;) %&gt;%
+    separate(transcript, sep = &quot;\\:&quot;, into = &quot;speaker&quot;, remove = FALSE)</code></pre>
+<pre><code>## Warning: Expected 1 pieces. Additional pieces discarded in 535 rows [2, 3, 4, 5,
+## 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, ...].</code></pre>
+<p>I’ll hide the rest of the scraping code since it’s long and repetitive, but the idea is to repeat the above process for each debate, combine each dataframe, then do a little final cleaning.</p>
+<p>So now we’ve got a tibble called “candidates_only” with the transcript, the candidate, and the debate number. Here’s what it looks like:</p>
+<pre class="r"><code>candidates_only %&gt;%
+    glimpse()</code></pre>
+<pre><code>## Rows: 3,525
+## Columns: 4
+## $ transcript &lt;chr&gt; &quot;Thank you. It’s good to be here&quot;, &quot;So I think of it thi...
+## $ speaker    &lt;chr&gt; &quot;Elizabeth Warren&quot;, &quot;Elizabeth Warren&quot;, &quot;Amy Klobuchar&quot;,...
+## $ debate     &lt;dbl&gt; 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,...
+## $ line_id    &lt;chr&gt; &quot;id_1&quot;, &quot;id_2&quot;, &quot;id_3&quot;, &quot;id_4&quot;, &quot;id_5&quot;, &quot;id_6&quot;, &quot;id_7&quot;, ...</code></pre>
+<div id="words-by-candidate" class="section level1">
+<h1>Words by candidate</h1>
+<p>Next we can use the tidytext package to transform the dataframe so that rows contain a single word spoken by that candidate. We’ll remove stopwords using tidytext, and then remove a few additional words, including contractions and the names of candidates.</p>
+<p>Then we can use the tidylo package to see the weighted log odds of each candidate using a particular word.</p>
+<pre class="r"><code>custom_stopwords &lt;- c(&quot;it&#39;s&quot;, &quot;biden&quot;, &quot;steyer&quot;, &quot;harris&quot;, &quot;warren&quot;,
+                      &quot;buttigieg&quot;,&quot;klobuchar&quot;, &quot;booker&quot;, &quot;yang&quot;, &quot;sanders&quot;, &quot;that&#39;s&quot;,
+                      &quot;i&#39;m&quot;, &quot;it’s&quot;, &quot;i’m&quot;, &quot;01&quot;, &quot;people&quot;, &quot;12&quot;, &quot;that’s&quot;, &quot;we’re&quot;, 
+                      &quot;02&quot;, &quot;don’t&quot;, &quot;we’ve&quot;, &quot;bloomberg&quot;, &quot;time&quot;, &quot;Senator&quot;,
+                      &quot;america&quot;, &quot;country&quot;, &quot;president&quot;, &quot;bring&quot;, &quot;american&quot;,
+                      &quot;pete&quot;, &quot;bernie&quot;, &quot;elizabeth&quot;, &quot;mike&quot;, &quot;cory&quot;, &quot;joe&quot;,
+                      &quot;kamala&quot;, &quot;amyklobuchar.com&quot;, &quot;amy&quot;, &quot;warre&quot;, 
+                      &quot;peteforamerica.com&quot;, &quot;ilia&quot;, &quot;calderón&quot;)
+
+candidates_words &lt;- candidates_only %&gt;%
+    unnest_tokens(word, transcript) %&gt;%
+    anti_join(stop_words, by = c(&quot;word&quot; = &quot;word&quot;)) %&gt;%
+    filter(!word %in% custom_stopwords) 
+
+
+
+candidates_words %&gt;%
+    filter(speaker %in% c(
+      &quot;Joe Biden&quot;, &quot;Bernie Sanders&quot;, &quot;Elizabeth Warren&quot;, &quot;Pete Buttigieg&quot;,
+      &quot;Amy Klobuchar&quot;, &quot;Cory Booker&quot;, &quot;Kamala Harris&quot;, 
+      &quot;Mike Bloomberg&quot;)) %&gt;%
+    add_count(speaker, name = &quot;total_words&quot;) %&gt;%
+    group_by(speaker) %&gt;%
+    count(word, sort = TRUE) %&gt;%
+    mutate(word = str_remove_all(word, &quot;[:punct:]&quot;)) %&gt;%
+    bind_log_odds(set = speaker, feature = word, n = n) %&gt;%
+    group_by(speaker) %&gt;%
+    top_n(8) %&gt;%
+    ungroup() %&gt;%
+    mutate(word = factor(word), 
+           word = reorder_within(word, log_odds_weighted, speaker)) %&gt;% 
+    ggplot(aes(x = log_odds_weighted, y = word, fill = speaker)) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~speaker, scales = &quot;free_y&quot;) +
+    scale_y_reordered() + 
+    theme_minimal()</code></pre>
+<pre><code>## Selecting by log_odds_weighted</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<p>I’m pretty happy with how this turned out, as these seem to capture the primary messages of each candidate:</p>
+<ul>
+<li>Bernie Sanders’ top word was, fittingly, “greed”, likely directed at large corporations (“<em>It’s not just the price fixing and the corruption and the greed of the pharmaceutical industry, it’s what’s going on in the fossil fuel industry. It’s what’s going on in Wall Street. It’s what’s going on with the prison industrial complex. We need a mass political movement.</em>”) “Industry” and “uninsured” shouldn’t be surprising either, as they are likely used in his criticisms of the pharmaceutical and healthcare industries.</li>
+<li>Cory Booker’s campaign tried to focus on optimism, hope, and unity, and that is captured by “purpose” being his top word by a significant margin.</li>
+<li>Elizabeth Warren’s top words are strongly representative of her message of fighting for the middle class. “Giant” was her most distinctive word – “<em>So I think of it this way, who is this economy really working for? It’s doing great for a thinner and thinner slice at the top. It’s doing great for giant drug companies.</em>” – while her “two-<strong>cent</strong> wealth tax” made a lot of appearances as well. “Cancel” refers to her plan to cancel student loan debt.</li>
+<li>Biden made significant use of his experience as Vice-President, refering frequently to the broadly (and increasingly) popular “Obamacare” and his relationship with President Obama.</li>
+<li>Mike Bloomberg only joined the debates at the end, and his log odds words list mostly focused on mentions of New York City. The inclusion of “Senator” likely refers to his responses to Senator Warren.</li>
+</ul>
+</div>
+<div id="modeling-which-candidate-said-a-particular-line-in-the-debates" class="section level1">
+<h1>Modeling which candidate said a particular line in the debates</h1>
+<p>OK, now let’s build a model to predict which of the top 8 candidates said a particular line in the debates. Are the candidates’ debate arguments distinct from one another enough to build a model around? We’ll see!</p>
+<p>First, do a little more cleaning and EDA before we model. First, we want to filter out any short lines, like interruptions that only contain a few words. So we’ll tokenize the text, add a column with word counts per debate line, and then filter for any below 25.</p>
+<p>Then we’ll take a look at the distributions of word counts per candidate lines (which also shows who talked the most in the debates!).</p>
+<p>Finally, we’ll get the total number of lines spoken per candidate. Biden and Bernie have the most, in large part to their extra debate together.</p>
+<pre class="r"><code>library(tokenizers)
+
+
+candidates_only2 &lt;- candidates_only %&gt;% 
+    filter(speaker %in% c(
+      &quot;Joe Biden&quot;, &quot;Bernie Sanders&quot;, &quot;Elizabeth Warren&quot;, &quot;Pete Buttigieg&quot;,
+      &quot;Amy Klobuchar&quot;, &quot;Cory Booker&quot;, &quot;Kamala Harris&quot;, 
+      &quot;Mike Bloomberg&quot;)) %&gt;% 
+    mutate(n_words = tokenizers::count_words(transcript)) %&gt;%
+    filter(n_words &gt; 25)
+
+
+## histogram
+candidates_only2 %&gt;%
+    ggplot(aes(n_words, fill = speaker)) +
+    geom_histogram() +
+    theme(legend.position = &quot;none&quot;) + 
+    facet_wrap(~speaker) </code></pre>
+<pre><code>## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-6-1.png" width="672" /></p>
+<pre class="r"><code>candidates_only2 %&gt;%
+    count(speaker) %&gt;%
+    ggplot(aes(n, reorder(speaker, n), fill = speaker)) +
+    geom_col() +
+    theme(legend.position = &quot;none&quot;)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-6-2.png" width="672" /></p>
+<p>Now we can move on to the modeling itself. We’ll create training and testing data, then define a preprocessing recipe that filters our stop words as well as the custom stopwords list I used above. I upsample because there’s a significant difference between the number of lines spoken by Biden at the top and Bloomberg at the bottom.</p>
+<p>We’ll start off with a regularized glmnet model, tuning for the number of tokens and the penalty used for regularization. It uses n-grams of two tokens as well. I also did an xgboost model, but I won’t actually run that code for this post, because it took nearly 25 hours to run <em>shocked emoji</em> and actually performed a little worse than the glmnet model below.</p>
+<pre class="r"><code>candidates_only3 &lt;- candidates_only2 %&gt;%
+    select(line_id, speaker, transcript)
+
+set.seed(123)
+candidates_split &lt;- initial_split(candidates_only3)
+candidates_train &lt;- training(candidates_split)
+candidates_test &lt;- testing(candidates_split)
+candidates_folds &lt;- vfold_cv(candidates_train, folds = 10, strata = speaker)
+
+
+glmnet_recipe &lt;- recipe(speaker ~ ., data = candidates_train) %&gt;%
+    update_role(line_id, new_role = &quot;id&quot;) %&gt;%
+    step_string2factor(speaker) %&gt;%
+    step_tokenize(transcript) %&gt;%
+    step_stopwords(transcript) %&gt;%
+    step_stopwords(transcript, custom_stopword_source = custom_stopwords) %&gt;% 
+    step_ngram(transcript, num_tokens = 2, min_num_tokens = 1) %&gt;%
+    step_tokenfilter(transcript, max_tokens = tune::tune(), min_times = 10) %&gt;%
+    step_tfidf(transcript) %&gt;%
+    step_normalize(recipes::all_predictors()) %&gt;%
+    themis::step_upsample(speaker)</code></pre>
+<pre><code>## Registered S3 methods overwritten by &#39;themis&#39;:
+##   method                  from   
+##   bake.step_downsample    recipes
+##   bake.step_upsample      recipes
+##   prep.step_downsample    recipes
+##   prep.step_upsample      recipes
+##   tidy.step_downsample    recipes
+##   tidy.step_upsample      recipes
+##   tunable.step_downsample recipes
+##   tunable.step_upsample   recipes</code></pre>
+<pre class="r"><code>glmnet_spec &lt;-  multinom_reg(penalty = tune(), mixture = 1) %&gt;% 
+    set_mode(&quot;classification&quot;) %&gt;% 
+    set_engine(&quot;glmnet&quot;) 
+
+glmnet_workflow &lt;- workflow() %&gt;% 
+    add_recipe(glmnet_recipe) %&gt;% 
+    add_model(glmnet_spec) 
+
+glmnet_grid &lt;- grid_max_entropy(
+    penalty(range = c(-4, 0)),
+    max_tokens(),
+    size = 25)
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+glmnet_tune &lt;- tune_grid(
+    glmnet_workflow, 
+    resamples = candidates_folds, 
+    grid = glmnet_grid,
+    metrics = metric_set(accuracy, roc_auc),
+    control = control_grid(save_pred = TRUE, pkgs = c(&#39;textrecipes&#39;))) </code></pre>
+<p>Here’s the code for the glmnet, in case you’re interested:</p>
+<pre class="r"><code>xgboost_recipe &lt;- recipe(formula = speaker ~ ., data = candidates_train) %&gt;% 
+    update_role(line_id, new_role = &quot;id&quot;) %&gt;%
+    step_string2factor(speaker) %&gt;%
+    step_tokenize(transcript) %&gt;%
+    step_stopwords(transcript) %&gt;%
+    step_stopwords(transcript, custom_stopword_source = custom_stopwords) %&gt;% 
+    step_ngram(transcript, num_tokens = 2, min_num_tokens = 1) %&gt;%
+    step_tokenfilter(transcript, max_tokens = tune::tune(), min_times = 10) %&gt;%
+    step_tfidf(transcript) %&gt;%
+    step_normalize(recipes::all_predictors()) %&gt;%
+    themis::step_upsample(speaker)
+
+
+xgboost_spec &lt;- boost_tree(
+    trees = 1000,
+    min_n = tune(), 
+    tree_depth = tune(), 
+    learn_rate = tune(), 
+    loss_reduction = tune(), 
+    sample_size = tune()) %&gt;% 
+    set_mode(&quot;classification&quot;) %&gt;% 
+    set_engine(&quot;xgboost&quot;) 
+
+
+
+xgb_grid &lt;- xgboost_spec %&gt;%
+    parameters() %&gt;%
+    grid_latin_hypercube(size = 20)
+
+
+xgboost_workflow &lt;- workflow() %&gt;% 
+    add_recipe(xgboost_recipe) %&gt;% 
+    add_model(xgboost_spec) 
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+
+tictoc::tic()
+set.seed(72008)
+
+xgboost_tune &lt;- tune_race_anova(
+    xgboost_workflow,
+    resamples = candidates_folds,
+    grid = xgb_grid,
+    metrics = metric_set(accuracy, roc_auc),
+    control = control_grid(save_pred = TRUE, pkgs = c(&quot;textrecipes&quot;)))
+
+
+tictoc::toc()
+beepr::beep(2)
+
+
+show_best(xgboost_tune, &quot;accuracy&quot;)
+show_best(xgboost_tune, &quot;roc_auc&quot;)
+
+xgb_pred &lt;- collect_predictions(xgboost_tune)
+
+xgb_pred %&gt;%
+    filter(id == &quot;Fold01&quot;) %&gt;%
+    conf_mat(speaker, .pred_class) %&gt;%
+    autoplot(type = &quot;heatmap&quot;)</code></pre>
+<pre class="r"><code>show_best(glmnet_tune, &quot;accuracy&quot;)</code></pre>
+<pre><code>## # A tibble: 5 x 8
+##    penalty max_tokens .metric  .estimator  mean     n std_err .config           
+##      &lt;dbl&gt;      &lt;int&gt; &lt;chr&gt;    &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt; &lt;chr&gt;             
+## 1 0.00189         892 accuracy multiclass 0.567    10 0.00988 Preprocessor01_Mo~
+## 2 0.000118        941 accuracy multiclass 0.555    10 0.00995 Preprocessor15_Mo~
+## 3 0.000111        724 accuracy multiclass 0.545    10 0.0116  Preprocessor08_Mo~
+## 4 0.000475        538 accuracy multiclass 0.537    10 0.0138  Preprocessor18_Mo~
+## 5 0.00115         715 accuracy multiclass 0.537    10 0.00813 Preprocessor03_Mo~</code></pre>
+<pre class="r"><code>show_best(glmnet_tune, &quot;roc_auc&quot;)</code></pre>
+<pre><code>## # A tibble: 5 x 8
+##    penalty max_tokens .metric .estimator  mean     n std_err .config            
+##      &lt;dbl&gt;      &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt; &lt;chr&gt;              
+## 1 0.00189         892 roc_auc hand_till  0.832    10 0.00819 Preprocessor01_Mod~
+## 2 0.000111        724 roc_auc hand_till  0.831    10 0.00589 Preprocessor08_Mod~
+## 3 0.00115         715 roc_auc hand_till  0.830    10 0.00643 Preprocessor03_Mod~
+## 4 0.000118        941 roc_auc hand_till  0.830    10 0.00749 Preprocessor15_Mod~
+## 5 0.000475        538 roc_auc hand_till  0.825    10 0.00693 Preprocessor18_Mod~</code></pre>
+<pre class="r"><code>lasso_pred &lt;- collect_predictions(glmnet_tune)
+
+
+best_roc &lt;- select_best(glmnet_tune, &quot;roc_auc&quot;)
+lasso_wf_final &lt;- finalize_workflow(glmnet_workflow, best_roc)
+
+
+## variable importance
+library(vip)
+
+lasso_wf_final %&gt;%
+    fit(candidates_train) %&gt;%
+    pull_workflow_fit() %&gt;%
+    vi(lambda = best_roc$penalty) %&gt;%
+    slice_head(n = 25) %&gt;%
+    mutate(Importance = abs(Importance),
+           Variable = str_remove(Variable, &quot;tfidf_transcript_&quot;),
+           Variable = fct_reorder(Variable, Importance)) %&gt;%
+    ggplot(aes(Importance, Variable, fill = Sign)) +
+    geom_col() +
+    theme_classic() +
+    labs(x = NULL, y = NULL)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>So, not <em>amazing</em> performance, but this is a difficult problem with 8 classes and not a ton of observations.</p>
+<p>But the variable importance plot is interesting. “Thank (you,) Senator” is the most important n-gram, followed closely by “think”. “Think” was used overwhelmingly by Amy Klobuchar (98 times), followed by Bernie (81).</p>
+<pre class="r"><code>## final model, evaluate with test data
+final_res &lt;- lasso_wf_final %&gt;%
+    last_fit(candidates_split, metrics = metric_set(accuracy, roc_auc))
+
+collect_metrics(final_res)</code></pre>
+<pre><code>## # A tibble: 2 x 4
+##   .metric  .estimator .estimate .config             
+##   &lt;chr&gt;    &lt;chr&gt;          &lt;dbl&gt; &lt;chr&gt;               
+## 1 accuracy multiclass     0.544 Preprocessor1_Model1
+## 2 roc_auc  hand_till      0.847 Preprocessor1_Model1</code></pre>
+<pre class="r"><code>final_res %&gt;%
+    collect_predictions() %&gt;%
+    conf_mat(speaker, .pred_class) %&gt;%
+    autoplot(type = &quot;heatmap&quot;) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+<p>The good news is that we didn’t overfit, even if our test accuracy was still just 57%. But the confusion matrix was pretty solid nevertheless, mostly getting the right person for each test line.</p>
+</div>
+<div id="what-did-candidates-talk-about" class="section level1">
+<h1>What did candidates talk about?</h1>
+<p>We can also do a little LDA to see what the candidates talked about. We cast our previous dataframe as a document-term matrix, then run LDA, collecting the beta probabilities for words in each of the three topics we’ll look at.</p>
+<pre class="r"><code>candidates_dtm &lt;- candidates_only3 %&gt;%
+    rename(text = transcript) %&gt;%
+    unnest_tokens(word, text) %&gt;%
+    anti_join(stop_words, by = &quot;word&quot;) %&gt;%
+    anti_join(tibble(word = custom_stopwords)) %&gt;%
+    count(speaker, word, sort = TRUE) %&gt;%
+    cast_dtm(speaker, word, n)</code></pre>
+<pre><code>## Joining, by = &quot;word&quot;</code></pre>
+<pre class="r"><code>candidates_lda &lt;- LDA(candidates_dtm, k = 3, control = list(seed = 123))
+
+
+
+candidates_topics &lt;- candidates_lda %&gt;%
+    tidy(matrix = &quot;beta&quot;)
+
+
+candidates_top_terms &lt;- candidates_topics %&gt;%
+    group_by(topic) %&gt;%
+    top_n(10, abs(beta)) %&gt;%
+    ungroup() %&gt;%
+    arrange(topic, desc(beta))
+
+
+candidates_top_terms %&gt;%
+    mutate(term = reorder_within(term, beta, topic)) %&gt;%
+    ggplot(aes(beta, term, fill = factor(topic))) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~ topic, scales = &quot;free&quot;) +
+    scale_y_reordered()</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-11-1.png" width="672" /></p>
+<p>I don’t know exactly what I expected, but there don’t seem to be huge differences between the three topics. “Plan”, “Trump”, “healthcare”, and “united” are common to all topics.</p>
+<ul>
+<li>However, topic one might be the Elizabeth Warren topic, as it’s distinguished by words like “I have a <strong>plan</strong> for that”, “healthcare”, “pay” and “money”, and “fight.”</li>
+<li>Topic two might be about Trump and Democrats’ arguments about his failures in health insurance policy.</li>
+<li>Topic three is also about Trump, but seems to me to be more Biden-ish, with words like “deal”, “world”, and “bill”.</li>
+</ul>
+</div>

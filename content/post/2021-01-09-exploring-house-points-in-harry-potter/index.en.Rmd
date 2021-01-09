@@ -19,6 +19,7 @@ image:
 projects: []
 ---
 
+
 Earlier during the pandemic my wife and I re-watched all of the Harry Potter movies. One thing that bugged me during the re-watch was the seemingly inconsistent nature of house cup points. Sometimes it seemed like minor things would give huge point awards, and vice versa. But was that actually true? How were house points awarded in Harry Potter?
 
 Thankfully, because of [Bradley Boehmke's harrypotter package](https://github.com/bradleyboehmke/harrypotter), we can answer this question! The package loads character vectors for each book. 

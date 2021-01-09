@@ -1,0 +1,159 @@
+---
+title: Exploring House Points in Harry Potter
+author: Chad Peltier
+date: '2021-01-09'
+slug: exploring-house-points-in-harry-potter
+categories:
+  - NLP
+tags:
+  - NLP
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-01-09T10:15:04-05:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+<link href="/rmarkdown-libs/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/anchor-sections/anchor-sections.js"></script>
+
+
+<p>Earlier during the pandemic my wife and I re-watched all of the Harry Potter movies. One thing that bugged me during the re-watch was the seemingly inconsistent nature of house cup points. Sometimes it seemed like minor things would give huge point awards, and vice versa. But was that actually true? How were house points awarded in Harry Potter?</p>
+<p>Thankfully, because of <a href="https://github.com/bradleyboehmke/harrypotter">Bradley Boehmke’s harrypotter package</a>, we can answer this question! The package loads character vectors for each book.</p>
+<pre class="r"><code>library(harrypotter)
+library(tidyverse)</code></pre>
+<pre><code>## -- Attaching packages --------------------------------------- tidyverse 1.3.0 --</code></pre>
+<pre><code>## v ggplot2 3.3.2     v purrr   0.3.4
+## v tibble  3.0.4     v dplyr   1.0.2
+## v tidyr   1.1.2     v stringr 1.4.0
+## v readr   1.4.0     v forcats 0.5.0</code></pre>
+<pre><code>## -- Conflicts ------------------------------------------ tidyverse_conflicts() --
+## x dplyr::filter() masks stats::filter()
+## x dplyr::lag()    masks stats::lag()</code></pre>
+<pre class="r"><code>library(tidytext)
+library(ggridges)</code></pre>
+<p>We’ll load all of the books into a list, then use <code>map2_dfr</code> to turn each into a tibble, add the book name as a column, and trim the actual text.</p>
+<pre class="r"><code>hp_books &lt;- list(philosophers_stone, chamber_of_secrets, prisoner_of_azkaban,
+                 goblet_of_fire, order_of_the_phoenix, half_blood_prince,
+                 deathly_hallows)
+
+books_vec &lt;- c(&quot;philosophers_stone&quot;, &quot;chamber_of_secrets&quot;, &quot;prisoner_of_azkaban&quot;,
+                 &quot;goblet_of_fire&quot;, &quot;order_of_the_phoenix&quot;, &quot;half_blood_prince&quot;,
+                 &quot;deathly_hallows&quot;)
+
+names(hp_books) &lt;- books_vec
+
+hp &lt;- map2_dfr(hp_books, names(hp_books),
+               ~ tibble(text = .x) %&gt;%
+                  mutate(book = .y,
+                         text = str_trim(text)))</code></pre>
+<p>Next we can use the <code>tidytext</code> package to unnest each sentence into a separate row, add columns for the sentence number and whether "point*" is detected in the sentence.</p>
+<pre class="r"><code>## unnest by sentence (all books)
+points &lt;- hp %&gt;%
+    unnest_tokens(sentences, text, token = &quot;regex&quot;, 
+                  pattern = &quot;(?&lt;!\\b(Mr|Mrs|Ms))\\.&quot;) %&gt;%
+    group_by(book) %&gt;%
+    mutate(sentence_num = row_number(),
+           point = str_detect(sentences, &quot;point |points&quot;),
+           sentences = str_squish(sentences),
+           sentences = str_remove_all(sentences, &quot;\t\n\r&quot;)) %&gt;%
+    ungroup() %&gt;%
+    arrange(factor(book, levels = books_vec))</code></pre>
+<p>I then exported this as a CSV and went through each line detected as “point” and added more information. You can see the resulting dataframe below:</p>
+<pre class="r"><code>hp_points &lt;- read_csv(&quot;C:\\Users\\ChadPeltier\\Downloads\\hp_points_coded.csv&quot;) %&gt;%
+    mutate(book = factor(book, levels = books_vec),
+           direction = if_else(num_points &gt; 0, &quot;positive&quot;, &quot;negative&quot;))
+
+hp_points %&gt;%
+    head(5)</code></pre>
+<pre><code>## # A tibble: 5 x 12
+##   book  sentences sentence_num point actual_point num_points points_awarder
+##   &lt;fct&gt; &lt;chr&gt;            &lt;dbl&gt; &lt;lgl&gt;        &lt;dbl&gt;      &lt;dbl&gt; &lt;chr&gt;         
+## 1 phil~ &quot;over th~         2381 TRUE             1         -1 Severus Snape 
+## 2 phil~ &quot;\&quot;you -~         2392 TRUE             1         -1 Severus Snape 
+## 3 phil~ &quot;\&quot;miss ~         3046 TRUE             1         -5 Minerva McGon~
+## 4 phil~ &quot;five po~         3097 TRUE             1         -5 Severus Snape 
+## 5 phil~ &quot;\&quot;five ~         3333 TRUE             1         -5 Severus Snape 
+## # ... with 5 more variables: points_subject &lt;chr&gt;, points_house &lt;chr&gt;,
+## #   reason &lt;chr&gt;, type_of_broken_rules &lt;chr&gt;, direction &lt;chr&gt;</code></pre>
+<p>Ok, now we can make some charts to analyze how many points were distributed, to whom, by whom, and for what:</p>
+<pre class="r"><code>## number of positive/negative awards per book
+hp_points %&gt;%
+    count(book, direction, sort = TRUE) %&gt;%
+    mutate(n = if_else(direction == &quot;negative&quot;, as.integer(paste0(&quot;-&quot;, n)), n)) %&gt;%
+    ggplot(aes(n, reorder(book, desc(book)), fill = direction)) +
+    geom_col() +
+    labs(y = &quot;&quot;, title = &quot;Number of positive or negative point awards by book&quot;)</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<pre class="r"><code>hp_points %&gt;%
+    ggplot(aes(num_points)) +
+    geom_histogram() +
+    ggtitle(&quot;Distribution of house point awards&quot;)</code></pre>
+<pre><code>## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-2.png" width="672" /></p>
+<pre class="r"><code>awarders &lt;- hp_points %&gt;%
+    count(points_awarder, sort = TRUE) %&gt;%
+    filter(n &gt; 2)
+
+# by book
+hp_points %&gt;%
+    ggplot(aes(num_points, reorder(book, desc(book)), fill = book)) +
+    geom_boxplot() +
+   # geom_jitter(aes(color = book)) + 
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, title = &quot;House points by book&quot;)</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-3.png" width="672" /></p>
+<pre class="r"><code># by reason
+hp_points %&gt;%
+    ggplot(aes(num_points, reason, fill = reason)) +
+    geom_density_ridges() +
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, title = &quot;Reasons for house points&quot;)</code></pre>
+<pre><code>## Picking joint bandwidth of 19.3</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-4.png" width="672" /></p>
+<pre class="r"><code>hp_points %&gt;%
+    ggplot(aes(num_points, reason, fill = reason)) +
+    geom_boxplot() +
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, title = &quot;Reasons for house points&quot;)</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-5.png" width="672" /></p>
+<pre class="r"><code>hp_points %&gt;%
+    count(reason, sort = TRUE) %&gt;%
+    ggplot(aes(n, reorder(reason,n ), fill = reason)) + 
+    geom_col() +
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, title = &quot;Number of awards/subtractions by reason&quot;)</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-6.png" width="672" /></p>
+<pre class="r"><code># by awarder
+hp_points %&gt;%
+    filter(points_awarder %in% awarders$points_awarder) %&gt;% 
+    ggplot(aes(num_points, points_awarder, fill = points_awarder)) +
+    geom_density_ridges() +
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, title = &quot;Who awarded points?&quot;)</code></pre>
+<pre><code>## Picking joint bandwidth of 6.64</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-7.png" width="672" /></p>
+<pre class="r"><code>## hermione&#39;s correct answers
+hp_points %&gt;%
+    filter(reason == &quot;Correct answer&quot;, 
+           points_subject == &quot;Hermione Granger&quot;) %&gt;%
+    group_by(points_awarder) %&gt;%
+    summarize(num_points = sum(num_points)) %&gt;%
+    ggplot(aes(reorder(points_awarder, -num_points), num_points, fill = points_awarder)) +
+    geom_col() +
+    theme(legend.position = &quot;none&quot;) +
+    labs(x = &quot;&quot;, title = &quot;Hermione&#39;s correct answers&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<p><img src="/post/2021-01-09-exploring-house-points-in-harry-potter/index.en_files/figure-html/unnamed-chunk-5-8.png" width="672" /></p>
+<ul>
+<li>Sorcerer’s Stone had a ton of negative point awards – many of them small, as did Order of the Phoenix (due to Umbridge). Goblet of Fire <em>only</em> had negative point awards!</li>
+<li>Most point awards or subtractions were small – 32/47 were between -10 and 10 points.</li>
+<li>Each book has a wide range of point awards. Sorcerer’s Stone, Chamber of Secrets, and Order of the Phoenix all had positive outliers due to end of the year adventure point awards. Notably, Sorcerer’s Stone also had a major negative outlier, with Professor McGonagall docking Neville, Ron, and Harry 50 points each (plus detentions!) for being out of bed after curfew (when Malfoy tricked them about a duel!).</li>
+<li>For reasons for the house point awards/subtractions, there were four basic reasons: Broken rules (being out of bed, being late, fighting), getting a correct answer in class, end of the year adventure awards, and either Umbridge or Snape being mean (where Harry and co didn’t exactly break a rule, but one of the two docked them points anyway). Note that Umbridge’s point awards were to Slytherin as part of Inquisitorial Squad stuff. It’s also noteworthy that attempting to win the cup by just getting correct answers will be tough – you have to answer a lot of correct questions due to small 5 or 10 point awards. It’s likely they’re more frequent than we see in the books (there are a lot of broken rules at Hogwarts!).</li>
+<li>McGonagall was loveable but stern – and that’s reflected in the distribution of point awards she gave/subtracted. Snape was basically all negative (point-wise), while Slughorn and Sprout both gave lots of points for correct answers (to Hermione!).</li>
+</ul>

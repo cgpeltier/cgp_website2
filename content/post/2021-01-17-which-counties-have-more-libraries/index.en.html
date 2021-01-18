@@ -1,0 +1,520 @@
+---
+title: Which Counties Have More Libraries
+author: Chad Peltier
+date: '2021-01-17'
+slug: which-counties-have-more-libraries
+categories:
+  - R
+tags:
+  - Modeling
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-01-17T18:33:18-05:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+<link href="/rmarkdown-libs/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/anchor-sections/anchor-sections.js"></script>
+
+
+<p>The <a href="https://www.imls.gov/research-evaluation/data-collection/public-libraries-survey">Public Library Survey</a> from the Institute of Museum and Library Services provides data on libraries across the county. Since my wife and I use the heck out of our library (shoutout to <a href="https://www.penguinrandomhouse.com/books/557044/palaces-for-the-people-by-eric-klinenberg/"><em>Palaces for the People</em>!</a>), I thought it would be interesting to see what data is correlated with more libraries and more funding for libraries around the country.</p>
+<pre class="r"><code>library(tidyverse)
+library(tidycensus)
+library(sf)
+library(janitor)
+library(GGally)
+
+library(tidymodels)
+library(usemodels)
+library(tidyposterior)</code></pre>
+<div id="libraries-data" class="section level2">
+<h2>Libraries data</h2>
+<p>The PLS data lists library branches, but individual libraries can have multiple locations. For example, my local library system, the Dekalb County Public Library, has 23 individual branches, but just one row in the dataset. These individual locations are divided between central and branch libraries, so I sum these together, then group by county to get the total number of library branches by county, as well as the total number of librarians and their salaries.</p>
+<p>The PLS data’s county names are unfortunately a lot different than the other data I’m going to bring in, so I had to edit a number of county names manually using <code>case_when</code> below. However, I only edited names for counties with &gt;5 library branches; otherwise I’d be manually changing &gt; 40. Since this is just a first look, and there’s still a large number of counties with library data, we should still have a good amount of data for modeling.</p>
+<pre class="r"><code># census_vars &lt;- load_variables(2018, &quot;acs5&quot;, cache = TRUE)
+
+states &lt;- tibble(state.abb, state.name, state.region) %&gt;%
+    rename(state = state.name)
+
+## libraries
+libraries &lt;- read_csv(&quot;C:\\Users\\ChadPeltier\\Downloads\\pls_fy2018_data_files_csv\\pls_fy18_ae_pud18i.csv&quot;) %&gt;%
+    clean_names() 
+
+libraries2 &lt;- libraries %&gt;%
+    mutate(tot_lib = centlib + branlib,
+           reaplocale_add = as.numeric(reaplocale_add)) %&gt;%
+    unite(fips_code, c(incitsst, incitsco), sep = &quot;&quot;) %&gt;% 
+    group_by(cnty, fips_code, stabr) %&gt;%
+    summarize(tot_lib = sum(tot_lib),
+              librarians = sum(libraria),
+              salaries = sum(salaries),
+              local_funding = sum(locgvt),
+              tot_funding = sum(totincm),
+              num_books = sum(bkvol),
+              tot_visits = sum(visits),
+              tot_programs = sum(totpro),
+              urb_rural = round(mean(reaplocale_add, na.rm = TRUE), 0),
+              ) %&gt;%
+    mutate(cnty = paste0(cnty, &quot; County&quot;),
+           cnty = str_to_title(cnty),
+           cnty = str_replace_all(cnty, &quot;`&quot;, &quot;\\&#39;&quot;),
+           urb_rural = case_when(urb_rural == 1 ~ &quot;Large city&quot;,
+                                 urb_rural == 2 ~ &quot;Midsize city&quot;,
+                                 urb_rural == 3 ~ &quot;Urban fringe large city&quot;,
+                                 urb_rural == 4 ~ &quot;Urban fringe mid city&quot;,
+                                 urb_rural == 5 ~ &quot;Large town&quot;, 
+                                 urb_rural == 6 ~ &quot;Small town&quot;,
+                                 urb_rural == 7 ~ &quot;Rural outside MA&quot;,
+                                 urb_rural == 8 ~ &quot;Rural inside MA&quot;)
+           ) %&gt;%
+    left_join(states, by = c(&quot;stabr&quot; = &quot;state.abb&quot;)) %&gt;%
+    mutate(state = if_else(cnty == &quot;district of columbia&quot;, &quot;district of columbia&quot;,
+                                state)) %&gt;%
+    rename(county = cnty) %&gt;%
+    ungroup()</code></pre>
+</div>
+<div id="acs-data" class="section level2">
+<h2>ACS Data</h2>
+<p>We’ll also bring in demographic county data from the Census Bureau’s American Community Survey using the amazing <code>tidycensus</code> package.</p>
+<p>The idea here is to see if counties with large populations of certain demographic and other groups are underserved in terms of their library access – for example, do counties with large numbers of individuals on Medicaid have fewer libraries than counties with more residents not on Medicaid?</p>
+<p>I have to do a good bit of wrangling to prep it for joining with the other data. I have to <code>pivot_wider</code> so that each ACS variable gets its own column, then re-join with the original dataframe. Then I’ll convert a lot of the raw ACS data into percentages of the total county population.</p>
+<pre class="r"><code>## acs
+acs &lt;- get_acs(geography = &quot;county&quot;,
+               variables = c(tot_pop = &quot;B01003_001&quot;, 
+                             age_male = &quot;B01002_002&quot;,
+                             age_female = &quot;B01002_003&quot;,
+                             ba = &quot;B15003_022&quot;,
+                             ma = &quot;B15003_023&quot;,
+                             pd = &quot;B15003_024&quot;,
+                             phd = &quot;B15003_025&quot;, 
+                             poverty = &quot;B17001_001&quot;,
+                             medicaid = &quot;C27007_001&quot;,
+                             tot_white = &quot;B02001_002&quot;,
+                             tot_black = &quot;B02001_003&quot;,
+                             tot_ai = &quot;B02001_004&quot;,
+                             tot_asian = &quot;B02001_005&quot;),
+                year = 2018)
+
+acs2 &lt;- acs %&gt;%
+    clean_names() %&gt;%
+    pivot_wider(names_from = variable, values_from = estimate, id_cols = name) %&gt;%
+    left_join(acs %&gt;% 
+                  clean_names() %&gt;%
+                  separate(name, into = c(&quot;county&quot;, &quot;state&quot;), 
+                           sep = &quot;, &quot;, remove = FALSE) %&gt;%
+                  select(name, county, state)) %&gt;%
+    relocate(state, county) %&gt;%
+    distinct() %&gt;%
+    left_join(fips_codes %&gt;% select(-state) %&gt;% unite(fips_code, c(state_code, county_code), sep = &quot;&quot;), by= c(&quot;state&quot; = &quot;state_name&quot;, &quot;county&quot;)) %&gt;%
+    mutate(
+           #county = str_replace(county, &quot;Parish&quot;, &quot;County&quot;),
+           #county = str_remove(county, &quot; census area&quot;),
+           #county = str_to_lower(county),
+           medicaid_perc = medicaid / tot_pop,
+           pov_perc = poverty / tot_pop,
+           college = ba + ma + pd + phd, 
+           college_perc = college / tot_pop,
+           white_perc = tot_white / tot_pop,
+           black_perc = tot_black / tot_pop,
+           ai_perc = tot_ai / tot_pop,
+           asian_perc = tot_asian / tot_pop)</code></pre>
+</div>
+<div id="election-data" class="section level2">
+<h2>Election data</h2>
+<p>Next we’ll bring in some election data for the last two presidential elections to see if counties with more people who voted for Trump or Clinton/Biden have more libraries.</p>
+<p>We’ll also be able to see if counties with higher turnout have more libraries. This would be my guess, since a lot of the analysis of the 2020 polling error focused on the potential non-response of less civically-engaged citizens who then broke for Trump (particularly in places like Wisconsin). Since libraries are centers of civic and social infrastructure, maybe low-library counties were also more likely to be both low-turnout and/or Trump counties? From Nate Cohn at the <a href="https://www.nytimes.com/2020/11/10/upshot/polls-what-went-wrong.html">New York Times’ Upshot</a>:</p>
+<blockquote>
+<p>A related possibility: During his term, Mr. Trump might have made gains among the kinds of voters who would be less likely to respond to surveys, and might have lost additional ground among voters who would be more likely to respond to surveys. College education, of course, is only a proxy for the traits that predict whether someone might back Mr. Trump or respond to a poll. There are other proxies as well, like whether you trust your neighbor; volunteer your time; are politically engaged.</p>
+</blockquote>
+<blockquote>
+<p>Another proxy is turnout: People who vote are likelier to take political surveys. The Times/Siena surveys go to great lengths to reach nonvoters, which was a major reason our surveys were more favorable for the president than others in 2016. In 2020, the nonvoters reached by The Times were generally more favorable for Mr. Biden than those with a track record of turning out in recent elections. It’s possible that, in the end, the final data will suggest that Mr. Trump did a better job of turning out nonvoters who backed him. But it’s also possible that we reached the wrong low-turnout voters.</p>
+</blockquote>
+<pre class="r"><code>pres20 &lt;- read_csv(&quot;https://github.com/tonmcg/US_County_Level_Election_Results_08-20/raw/master/2020_US_County_Level_Presidential_Results.csv&quot;) %&gt;%
+    mutate(election = 2020) %&gt;%
+    left_join(states, by = c(&quot;state_name&quot; = &quot;state&quot;)) %&gt;%
+    rename(fips_code = county_fips, county = county_name, state_abbr = state.abb, state = state_name)</code></pre>
+<pre><code>## 
+## -- Column specification --------------------------------------------------------
+## cols(
+##   state_name = col_character(),
+##   county_fips = col_character(),
+##   county_name = col_character(),
+##   votes_gop = col_double(),
+##   votes_dem = col_double(),
+##   total_votes = col_double(),
+##   diff = col_double(),
+##   per_gop = col_double(),
+##   per_dem = col_double(),
+##   per_point_diff = col_double()
+## )</code></pre>
+<pre class="r"><code>pres16 &lt;- read_csv(&quot;https://github.com/tonmcg/US_County_Level_Election_Results_08-20/raw/master/2016_US_County_Level_Presidential_Results.csv&quot;) %&gt;%
+    left_join(states, by = c(&quot;state_abbr&quot; = &quot;state.abb&quot;)) %&gt;%
+    rename(county = county_name) %&gt;%
+    mutate(per_point_diff = parse_number(per_point_diff),
+           per_point_diff = per_point_diff / 100,
+           election = 2016,
+           state = if_else(county == &quot;District of Columbia&quot;, 
+                           &quot;District of Columbia&quot;, state),
+           fips_code = if_else(str_length(combined_fips) == 4, 
+                                   paste0(0, combined_fips),
+                                   as.character(combined_fips))) %&gt;%
+    select(-c(X1, combined_fips)) %&gt;%
+    distinct()</code></pre>
+<pre><code>## Warning: Missing column names filled in: &#39;X1&#39; [1]</code></pre>
+<pre><code>## 
+## -- Column specification --------------------------------------------------------
+## cols(
+##   X1 = col_double(),
+##   votes_dem = col_double(),
+##   votes_gop = col_double(),
+##   total_votes = col_double(),
+##   per_dem = col_double(),
+##   per_gop = col_double(),
+##   diff = col_number(),
+##   per_point_diff = col_character(),
+##   state_abbr = col_character(),
+##   county_name = col_character(),
+##   combined_fips = col_double()
+## )</code></pre>
+<pre class="r"><code>pres &lt;- pres20 %&gt;%
+    bind_rows(pres16) %&gt;%
+    mutate(election = paste0(&quot;dem_perc&quot;, election),
+           state_county = paste(state, county, sep = &quot;_&quot;)) %&gt;%
+    pivot_wider(names_from = election, values_from = c(per_dem, total_votes), id_cols = fips_code) %&gt;%
+    left_join(pres20 %&gt;% select(state, county, fips_code)) %&gt;%
+    rename(total_votes20 = 4, total_votes16 = 5,
+           dem_perc20 = 2, dem_perc16 = 3) %&gt;%
+    mutate(dem_dif = dem_perc20 - dem_perc16,
+           total_votes_dif = total_votes20 - total_votes16,
+           #county = str_replace(county, &quot;Parish&quot;, &quot;County&quot;),
+           #county = str_to_lower(county)
+           ) %&gt;%
+    relocate(state, county)</code></pre>
+<pre><code>## Joining, by = &quot;fips_code&quot;</code></pre>
+<p>Finally, we’ll also add in some data from the <a href="https://www.americancommunities.org/methodology/">American Communities Project</a> that classifies counties based on various demographic variables into groups like “exurbs”, “working class country”, and “military posts”.</p>
+<pre class="r"><code>communities &lt;- readxl::read_xlsx(&quot;C:\\Users\\ChadPeltier\\Downloads\\County-Type-Share.xlsx&quot;) %&gt;%
+    clean_names() </code></pre>
+<pre><code>## New names:
+## * `Type Number` -&gt; `Type Number...2`
+## * `Type Number` -&gt; `Type Number...4`
+## * `` -&gt; ...5</code></pre>
+<pre class="r"><code>communities_key &lt;- communities %&gt;%
+    slice_head(n = 15) %&gt;%
+    select(key, new_names)
+    
+communities2 &lt;- communities %&gt;%
+    left_join(communities_key, by = c(&quot;type_number_2&quot; = &quot;key&quot;)) %&gt;%
+    rename(acp_county_type = new_names.y, fips_code = fips) %&gt;%
+    select(3,8) %&gt;%
+    mutate(fips_code = if_else(str_length(fips_code) == 4, paste0(0, fips_code),
+                              as.character(fips_code)),
+           fips_code = as.character(fips_code))</code></pre>
+<p>Finally, we can combine all of these dataframes together:</p>
+<pre class="r"><code>combined &lt;- pres %&gt;%
+    left_join(acs2 %&gt;% select(-c(state, county)), by = &quot;fips_code&quot;) %&gt;%
+    left_join(libraries2 %&gt;% select(-c(state, county)), by = &quot;fips_code&quot;) %&gt;%
+    left_join(communities2) %&gt;%
+    mutate(turnout20 = total_votes20 / tot_pop,
+           turnout16 = total_votes16 / tot_pop,
+           turnout_dif = turnout20 - turnout16) %&gt;%
+    rename(state_abbr = stabr, region = state.region) %&gt;%
+    filter(!state %in% c(&quot;Hawaii&quot;, &quot;Alaska&quot;)) %&gt;%
+    relocate(name, county, state, state_abbr, region, urb_rural, acp_county_type) </code></pre>
+<pre><code>## Joining, by = &quot;fips_code&quot;</code></pre>
+<pre class="r"><code>## comparison of predictors vs. DV
+combined %&gt;%    
+    drop_na() %&gt;%
+    ggpairs(aes(color = region), progress = FALSE,
+            columns = c(&quot;tot_lib&quot;, &quot;pov_perc&quot;, &quot;college_perc&quot;, &quot;tot_pop&quot;,
+           &quot;black_perc&quot;, &quot;dem_perc20&quot;, &quot;turnout20&quot;))</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-8-1.png" width="672" /></p>
+<pre class="r"><code>## comparison of library vars
+combined %&gt;%    
+    drop_na() %&gt;%
+    ggpairs(aes(color = region), progress = FALSE,
+            columns = c(&quot;tot_lib&quot;, &quot;salaries&quot;, &quot;local_funding&quot;, &quot;num_books&quot;, 
+                        &quot;tot_visits&quot;, &quot;tot_programs&quot;))</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-8-2.png" width="672" /></p>
+</div>
+<div id="modeling-the-number-of-libraries-per-county" class="section level2">
+<h2>Modeling the Number of Libraries per County</h2>
+<p>So now we’ll try and build a model to predict the number of library branches in a county. We’ll take a subset of columns, then use <code>tidymodels</code> to split the training and testing data.</p>
+<pre class="r"><code>## Select cols (DV == total libraries)
+combined_raw &lt;- combined %&gt;%
+    ungroup() %&gt;%
+    drop_na() %&gt;% 
+    select(name, tot_lib, age_male, age_female, medicaid_perc, tot_pop,
+           pov_perc, college_perc, white_perc, black_perc, ai_perc, asian_perc,
+           dem_perc20, dem_perc16, turnout20)
+
+## split training/testing
+lib_split &lt;- initial_split(combined_raw)
+lib_training &lt;- training(lib_split)
+lib_testing &lt;- testing(lib_split)
+lib_folds &lt;- vfold_cv(lib_training)</code></pre>
+<p>We’ll start out with a basic regularized linear regression.</p>
+<pre class="r"><code>## Glmnet model
+glmnet_recipe &lt;- recipe(formula = tot_lib ~ ., data = lib_training) %&gt;% 
+  update_role(name, new_role = &quot;id&quot;) %&gt;% 
+  step_zv(all_predictors()) %&gt;% 
+  step_normalize(all_predictors()) 
+
+glmnet_spec &lt;- linear_reg(penalty = tune(), mixture = tune()) %&gt;% 
+  set_mode(&quot;regression&quot;) %&gt;% 
+  set_engine(&quot;glmnet&quot;) 
+
+glmnet_workflow &lt;- workflow() %&gt;% 
+  add_recipe(glmnet_recipe) %&gt;% 
+  add_model(glmnet_spec) 
+
+glmnet_grid &lt;- tidyr::crossing(penalty = 10^seq(-6, -1, length.out = 20), 
+                               mixture = c(0.05, 0.2, 0.4, 0.6, 0.8, 1)) 
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+glmnet_tune &lt;- tune_grid(glmnet_workflow, 
+                         resamples = lib_folds, 
+                         grid = glmnet_grid) 
+
+show_best(glmnet_tune)</code></pre>
+<pre><code>## Warning: No value of `metric` was given; metric &#39;rmse&#39; will be used.</code></pre>
+<pre><code>## # A tibble: 5 x 8
+##      penalty mixture .metric .estimator  mean     n std_err .config             
+##        &lt;dbl&gt;   &lt;dbl&gt; &lt;chr&gt;   &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt; &lt;chr&gt;               
+## 1 0.0298        0.05 rmse    standard    4.56    10   0.268 Preprocessor1_Model~
+## 2 0.000001      0.05 rmse    standard    4.56    10   0.268 Preprocessor1_Model~
+## 3 0.00000183    0.05 rmse    standard    4.56    10   0.268 Preprocessor1_Model~
+## 4 0.00000336    0.05 rmse    standard    4.56    10   0.268 Preprocessor1_Model~
+## 5 0.00000616    0.05 rmse    standard    4.56    10   0.268 Preprocessor1_Model~</code></pre>
+<pre class="r"><code>autoplot(glmnet_tune)</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+<p>Pretty good! The R-squared values are all at around 75%. Ideally it’d be nice to have a RMSE of less than 4.5, but still a solid performance for a first model.</p>
+<p>Next we’ll try an xgboost, tuning everything under the sun:</p>
+<pre class="r"><code>xgboost_spec &lt;- boost_tree(trees = tune(), min_n = tune(), tree_depth = tune(),
+                           learn_rate = tune(), loss_reduction = tune(), 
+                           sample_size = tune()) %&gt;% 
+    set_mode(&quot;regression&quot;) %&gt;% 
+    set_engine(&quot;xgboost&quot;) 
+
+xgboost_workflow &lt;- workflow() %&gt;% 
+    add_recipe(glmnet_recipe) %&gt;% 
+    add_model(xgboost_spec) 
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+xgboost_tune &lt;- tune_grid(xgboost_workflow, 
+                          resamples = lib_folds, 
+                          grid = 15)
+
+## Evaluate results
+show_best(xgboost_tune)</code></pre>
+<pre><code>## Warning: No value of `metric` was given; metric &#39;rmse&#39; will be used.</code></pre>
+<pre><code>## # A tibble: 5 x 12
+##   trees min_n tree_depth learn_rate loss_reduction sample_size .metric
+##   &lt;int&gt; &lt;int&gt;      &lt;int&gt;      &lt;dbl&gt;          &lt;dbl&gt;       &lt;dbl&gt; &lt;chr&gt;  
+## 1  1592    10          5  0.0212     0.00000000469       0.607 rmse   
+## 2  1760    25         14  0.0389     0.000234            0.795 rmse   
+## 3    88    38         10  0.00400    0.00000000160       0.365 rmse   
+## 4   560     6          6  0.000407   0.0100              0.318 rmse   
+## 5  1935    18          7  0.0000127  0.00243             0.661 rmse   
+## # ... with 5 more variables: .estimator &lt;chr&gt;, mean &lt;dbl&gt;, n &lt;int&gt;,
+## #   std_err &lt;dbl&gt;, .config &lt;chr&gt;</code></pre>
+<pre class="r"><code>autoplot(xgboost_tune)</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-11-1.png" width="672" /></p>
+<p>HMMMMMM. Not awesome! The glmnet models outperformed the xgboost pretty significantly! For our third model we’ll try a tuned MARS:</p>
+<pre class="r"><code>earth_spec &lt;- mars(num_terms = tune(), prod_degree = tune(), prune_method = &quot;none&quot;) %&gt;% 
+    set_mode(&quot;regression&quot;) %&gt;% 
+    set_engine(&quot;earth&quot;) 
+
+earth_workflow &lt;- workflow() %&gt;% 
+    add_recipe(glmnet_recipe) %&gt;% 
+    add_model(earth_spec) 
+
+earth_grid &lt;- tidyr::crossing(num_terms = 2 * (1:6), 
+                              prod_degree = 1:2) 
+
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+earth_tune &lt;- tune_grid(earth_workflow, 
+                        resamples = lib_folds, 
+                        grid = earth_grid) 
+
+## Evaluate results
+show_best(earth_tune)</code></pre>
+<pre><code>## Warning: No value of `metric` was given; metric &#39;rmse&#39; will be used.</code></pre>
+<pre><code>## # A tibble: 5 x 8
+##   num_terms prod_degree .metric .estimator  mean     n std_err .config          
+##       &lt;dbl&gt;       &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt; &lt;chr&gt;            
+## 1         8           2 rmse    standard    4.45    10   0.146 Preprocessor1_Mo~
+## 2        10           1 rmse    standard    4.50    10   0.267 Preprocessor1_Mo~
+## 3        12           1 rmse    standard    4.52    10   0.268 Preprocessor1_Mo~
+## 4         8           1 rmse    standard    4.54    10   0.267 Preprocessor1_Mo~
+## 5        12           2 rmse    standard    4.55    10   0.176 Preprocessor1_Mo~</code></pre>
+<pre class="r"><code>autoplot(earth_tune)</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-12-1.png" width="672" /></p>
+<p>So, pretty comparable to the glmnet model.</p>
+<p>Finally, I wrote out a single-layer keras model, but my computer couldn’t run it in &lt;12 hours, so I didn’t actually let this model finish to compare with the others! Maybe if I can get some time on a cloud GPU instance, I’ll re-run!</p>
+<pre class="r"><code>mlp_rec &lt;- recipe(tot_lib ~ ., data = lib_training) %&gt;%
+    update_role(name, new_role = &quot;id&quot;) %&gt;% 
+    step_YeoJohnson(all_predictors()) %&gt;% 
+    step_normalize(all_predictors()) %&gt;% 
+    step_normalize(all_predictors())
+
+mlp_spec &lt;- mlp(hidden_units = tune(), 
+                penalty = tune(), 
+                epochs = tune()) %&gt;% 
+   set_engine(&quot;keras&quot;, trace = 0) %&gt;% 
+   set_mode(&quot;regression&quot;)
+
+mlp_wflow &lt;- workflow() %&gt;% 
+    add_model(mlp_spec) %&gt;% 
+    add_recipe(mlp_rec)
+
+mlp_param &lt;- mlp_wflow %&gt;% 
+    parameters() %&gt;% 
+    grid_latin_hypercube(size = 15)
+
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+set.seed(99)
+mlp_reg_tune &lt;- tune_grid(mlp_wflow,
+                          resamples = lib_folds,
+                          grid = mlp_param)</code></pre>
+</div>
+<div id="comparing-resamples-with-tidyposterior" class="section level2">
+<h2>Comparing Resamples with Tidyposterior</h2>
+<p>Now I thought it’d be cool to try out the <code>tidyposterior</code> package to fit Bayesian models to compare the resampled models’ r-squared estimates. Note that I use a relatively low number of iterations since this is just a first cut and it already takes a super long time to run on my machine.</p>
+<pre class="r"><code>## collect rsq estimates
+glm_rsq &lt;- collect_metrics(glmnet_tune, summarize = FALSE) %&gt;%
+    filter(.metric == &quot;rsq&quot;) %&gt;%
+    select(id, &quot;glmnet&quot; = .estimate)
+
+earth_rsq &lt;- collect_metrics(earth_tune, summarize = FALSE) %&gt;% 
+  filter(.metric == &quot;rsq&quot;) %&gt;% 
+  select(id, earth = .estimate)
+
+rsq_estimates &lt;- inner_join(glm_rsq, earth_rsq, by = &quot;id&quot;) 
+
+lib_models &lt;- lib_folds %&gt;%
+    left_join(rsq_estimates)
+
+
+## Tidyposterior
+all_cores &lt;- parallel::detectCores(logical = FALSE)
+cl &lt;- parallel::makePSOCKcluster(all_cores)
+doParallel::registerDoParallel(cl)
+set.seed(1234)
+
+rsq_anova &lt;- perf_mod(lib_models,
+                      prior_intercept = rstanarm::student_t(df = 1),
+                      chains = 4,
+                      iter = 1000,
+                      seed = 2)
+
+model_post &lt;- rsq_anova %&gt;% 
+    tidy(seed = 35) %&gt;% 
+    as_tibble() </code></pre>
+<pre class="r"><code>model_post %&gt;% 
+    mutate(model = fct_inorder(model)) %&gt;%
+    ggplot(aes(x = posterior)) + 
+    geom_histogram(bins = 50, col = &quot;white&quot;, fill = &quot;blue&quot;, alpha = 0.4) + 
+    facet_wrap(~ model, ncol = 1) + 
+    labs(x = expression(paste(&quot;Posterior for mean &quot;, R^2)))</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-16-1.png" width="672" /></p>
+<p>The glmnet and MARS models were extremely similar, but the distribution of posterior mean R-squared is slightly to the right for the most simple model – the glmnet.</p>
+</div>
+<div id="finalize-model" class="section level2">
+<h2>Finalize Model</h2>
+<pre class="r"><code>final_wf &lt;- glmnet_workflow %&gt;%
+    finalize_workflow(select_best(glmnet_tune, &quot;rmse&quot;))
+
+## variable importance
+final_wf %&gt;%
+    fit(lib_training) %&gt;%
+    pull_workflow_fit() %&gt;%
+    vip::vi(lambda = select_best(glmnet_tune, &quot;rmse&quot;)) %&gt;%
+    mutate(Importance = abs(Importance),
+           Variable = fct_reorder(Variable, Importance)) %&gt;%
+    ggplot(aes(Importance, Variable, color = Sign)) + 
+    geom_point() +
+    geom_segment(aes(x = 0, xend = Importance, y = Variable, yend = Variable)) </code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-17-1.png" width="672" /></p>
+<p>So the county’s total population explains most of the variation, like you’d expect: more people means more libraries. But there are some smaller effects from having a more Democratic county, a whiter county, and a county with older female residents.</p>
+<p>Overall I’d say it’s hard to disentangle a number of related variables here. The urban-rural divide between Democrats and Republicans only intensified in 2020, and so naturally these more populous counties are more likely to have more libraries. But note that total population alone doesn’t explain the entire variation – having more Democrats explains part of it, too (I wonder if recently-Democratic suburbs, with lower total populations, has something to do with that?).</p>
+<pre class="r"><code>## testing data
+final_results &lt;- last_fit(final_wf, lib_split)
+
+collect_metrics(final_results)</code></pre>
+<pre><code>## # A tibble: 2 x 4
+##   .metric .estimator .estimate .config             
+##   &lt;chr&gt;   &lt;chr&gt;          &lt;dbl&gt; &lt;chr&gt;               
+## 1 rmse    standard       4.57  Preprocessor1_Model1
+## 2 rsq     standard       0.704 Preprocessor1_Model1</code></pre>
+<p>The RMSE for the testing data is a little worse than for the training data, and the R-squared is noticeably lower, indicating some overfitting. The RMSE, which is what we optimized for our tuning parameters, is close enough to the training results that I’m not <em>too</em> worried, though.</p>
+<pre class="r"><code>## actual vs. predicted number of libraries (test data)
+final_results %&gt;%
+    collect_predictions() %&gt;%
+    ggplot(aes(tot_lib, .pred)) +
+    geom_abline(lty = 2, color = &quot;gray50&quot;) +
+    geom_point(aes(alpha = 0.5, color = &quot;firebrick&quot;)) +
+    labs(title = &quot;Actual vs. Predicted Number of Libraries&quot;,
+         subtitle = &quot;Per county, from testing data&quot;) + 
+    theme(legend.position = &quot;none&quot;)</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-19-1.png" width="672" /></p>
+<pre class="r"><code>## actual vs. predicted number of libraries (full library data)
+full_preds &lt;- final_wf %&gt;%
+    fit(lib_training) %&gt;%
+    predict(new_data = combined %&gt;% drop_na()) %&gt;%
+    bind_cols(combined %&gt;% drop_na()) %&gt;%
+    mutate(pred_error = abs(.pred - tot_lib),
+           bad_error = pred_error &gt; 30) %&gt;%
+    select(name, tot_lib, .pred, urb_rural, pred_error, bad_error) %&gt;%
+    arrange(desc(pred_error))
+
+full_preds %&gt;%
+    ggplot(aes(tot_lib, .pred)) +
+    geom_abline(lty = 2, color = &quot;gray50&quot;) +
+    geom_point(aes(alpha = 0.3, color = &quot;firebrick&quot;), show.legend = FALSE) +
+    ggrepel::geom_text_repel(data = full_preds %&gt;% filter(bad_error == TRUE), 
+                             aes(label = name), size = 3) +
+    labs(title = &quot;Actual vs. Predicted Number of Libraries Per County&quot;,
+         subtitle = &quot;Named counties have large prediction errors&quot;) </code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-19-2.png" width="672" /></p>
+<pre class="r"><code>## error plot by urb_rural
+full_preds %&gt;%
+    mutate(pred_error_perc = pred_error / tot_lib) %&gt;%
+    ggplot(aes(pred_error_perc, reorder(urb_rural, pred_error_perc), 
+               color = urb_rural)) +
+    geom_boxplot() +
+    scale_x_log10(labels = scales::percent) +
+    theme(legend.position = &quot;none&quot;) + 
+    labs(y = &quot;&quot;, x = &quot;Prediction Error as % of Total Libraries&quot;, 
+         title = &quot;Prediction Error by County Type&quot;,
+         subtitle = &quot;County type from NCES REAP Classifications&quot;) </code></pre>
+<pre><code>## Warning in self$trans$transform(x): NaNs produced</code></pre>
+<pre><code>## Warning: Transformation introduced infinite values in continuous x-axis</code></pre>
+<pre><code>## Warning: Removed 8 rows containing non-finite values (stat_boxplot).</code></pre>
+<p><img src="/post/2021-01-17-which-counties-have-more-libraries/index.en_files/figure-html/unnamed-chunk-19-3.png" width="672" /></p>
+<p>After fitting the model to the original data, it’s interesting to see which counties had the highest error. The counties with the largest error overall are mostly big cities or “urban fringe” of big cities, which you’d expect since they have larger populations and more libraries to begin with. Notably, both Chicago (Cook County) and New York, the two counties with the largest absolute error, have more counties (about 50!) than the model would expect. Nice job!</p>
+<p>If you divide the absolute prediction error by the total number of libraries, the model does a poor job of predicting the number of libraries in rural counties.</p>
+<p>As a follow-up, it would be interesting to fit a model that is only based on population, and then look at the demographic characteristics of the counties that have fewer libraries than would be expected. I’d also like to spend longer gathering demographic data for counties that might help explain some of the additional variation.</p>
+</div>

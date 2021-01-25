@@ -1,0 +1,2440 @@
+---
+title: How Durable Are Democrats Gains in Georgia?
+author: Chad Peltier
+date: '2021-01-18'
+slug: how-durable-are-democrats-gains-in-georgia
+categories:
+  - R
+tags:
+  - Politics
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2021-01-18T17:42:37-05:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+<link href="/rmarkdown-libs/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/anchor-sections/anchor-sections.js"></script>
+
+
+<pre class="r"><code>library(tidyverse)
+library(tidycensus)
+library(sf)
+library(lubridate)
+library(janitor)
+library(GGally)
+library(patchwork)
+library(gt)
+library(srvyr)</code></pre>
+<p>There have been <a href="https://www.bloomberg.com/graphics/2020-suburban-density-election/">roughly</a> <a href="https://www.nytimes.com/2020/12/07/upshot/trump-election-vote-shift.html">eight</a> <a href="https://fivethirtyeight.com/features/how-democrats-won-the-georgia-runoffs/">billion</a> <a href="https://nymag.com/intelligencer/2020/12/democrats-rural-voters-2024-workers-wages-weed.html">articles</a> <a href="https://fivethirtyeight.com/features/why-the-suburbs-have-shifted-blue/">analyzing</a> <a href="https://fivethirtyeight.com/features/there-wasnt-that-much-split-ticket-voting-in-2020/">data</a> from the 2020 election, <a href="https://www.nytimes.com/2021/01/07/upshot/warnock-ossoff-georgia-victories.html">specifically</a> <a href="https://www.nytimes.com/interactive/2020/11/17/upshot/georgia-precinct-shift-suburbs.html">in</a> <a href="https://www.nytimes.com/2020/12/09/upshot/atlanta-suburbs-democratic-shift.html">Georgia</a>, where I was born and currently live.</p>
+<p>The thing I wonder about the most though is how durable Democrats’ gains are in the suburbs. The suburbs were a critical part of Biden (and Warnock and Ossoff’s) success. As FiveThirtyEight wrote in a big article about the suburbs in December:</p>
+<blockquote>
+<p>Suburban and exurban counties turned away from Trump and toward Democrat Joe Biden in states across the country, including in key battleground states like Pennsylvania and Georgia. In part, this may be because the suburbs are simply far more diverse than they used to be. But suburbs have also become increasingly well-educated — and that may actually better explain why so many suburbs and exurbs are turning blue than just increased diversity on its own.</p>
+</blockquote>
+<p>But what if these voters were primarily voting <em>against</em> Trump and not <em>for</em> Biden? What if these suburban counties, which contain a large number of Romney-Clinton voters and might be more open to GOP economic arguments about tax cuts and deregulation, shift back to the red-ish hues of purple now that Trump is out of office?</p>
+<p>So in this post I’ll break down the 2020 Georgia vote for Biden, and then for Ossoff and Warnock in the 5 January special election, into three categories:</p>
+<ol style="list-style-type: decimal">
+<li>2020 Georgia Presidential vote: Compared with Georgia in 2016 and with the rest of the 2020 vote across the country</li>
+<li>2020 Georgia Senate special election: Compared with Biden’s 2020 margins</li>
+<li>Survey data from the <a href="https://www.voterstudygroup.org/nationscape">Democracy Fund / UCLA Nationscape</a> study on suburban voters’ attitudes</li>
+</ol>
+<div id="presidential-vote" class="section level2">
+<h2>2020 Presidential Vote</h2>
+<p>Alright, to start with we’ll pull demographic data by county from the latest American Community Survey using the amazing <code>tidycensus</code> package. I’ll download the sf geometries for some mapping as well.</p>
+<pre class="r"><code>## acs
+acs &lt;- get_acs(geography = &quot;county&quot;,
+               variables = c(tot_pop = &quot;B01003_001&quot;, 
+                             age_male = &quot;B01002_002&quot;,
+                             age_female = &quot;B01002_003&quot;,
+                             ba = &quot;B15003_022&quot;,
+                             ma = &quot;B15003_023&quot;,
+                             pd = &quot;B15003_024&quot;,
+                             phd = &quot;B15003_025&quot;, 
+                             poverty = &quot;B17001_001&quot;,
+                             medicaid = &quot;C27007_001&quot;,
+                             tot_white = &quot;B02001_002&quot;,
+                             tot_black = &quot;B02001_003&quot;,
+                             tot_ai = &quot;B02001_004&quot;,
+                             tot_asian = &quot;B02001_005&quot;,
+                             born_other_state = &quot;B06001_025&quot;,
+                             income = &quot;B19127_001&quot;),
+              year = 2019,
+              geometry = TRUE)</code></pre>
+<pre><code>## 
+  |                                                                            
+  |                                                                      |   0%
+  |                                                                            
+  |                                                                      |   1%
+  |                                                                            
+  |=                                                                     |   1%
+  |                                                                            
+  |=                                                                     |   2%
+  |                                                                            
+  |==                                                                    |   2%
+  |                                                                            
+  |==                                                                    |   3%
+  |                                                                            
+  |==                                                                    |   4%
+  |                                                                            
+  |===                                                                   |   4%
+  |                                                                            
+  |===                                                                   |   5%
+  |                                                                            
+  |====                                                                  |   5%
+  |                                                                            
+  |====                                                                  |   6%
+  |                                                                            
+  |=====                                                                 |   7%
+  |                                                                            
+  |=====                                                                 |   8%
+  |                                                                            
+  |======                                                                |   8%
+  |                                                                            
+  |======                                                                |   9%
+  |                                                                            
+  |=======                                                               |   9%
+  |                                                                            
+  |=======                                                               |  10%
+  |                                                                            
+  |=======                                                               |  11%
+  |                                                                            
+  |========                                                              |  11%
+  |                                                                            
+  |========                                                              |  12%
+  |                                                                            
+  |=========                                                             |  12%
+  |                                                                            
+  |=========                                                             |  13%
+  |                                                                            
+  |==========                                                            |  14%
+  |                                                                            
+  |==========                                                            |  15%
+  |                                                                            
+  |===========                                                           |  15%
+  |                                                                            
+  |===========                                                           |  16%
+  |                                                                            
+  |============                                                          |  16%
+  |                                                                            
+  |============                                                          |  17%
+  |                                                                            
+  |============                                                          |  18%
+  |                                                                            
+  |=============                                                         |  18%
+  |                                                                            
+  |=============                                                         |  19%
+  |                                                                            
+  |==============                                                        |  19%
+  |                                                                            
+  |==============                                                        |  20%
+  |                                                                            
+  |==============                                                        |  21%
+  |                                                                            
+  |===============                                                       |  21%
+  |                                                                            
+  |===============                                                       |  22%
+  |                                                                            
+  |================                                                      |  22%
+  |                                                                            
+  |================                                                      |  23%
+  |                                                                            
+  |=================                                                     |  24%
+  |                                                                            
+  |=================                                                     |  25%
+  |                                                                            
+  |==================                                                    |  25%
+  |                                                                            
+  |==================                                                    |  26%
+  |                                                                            
+  |===================                                                   |  27%
+  |                                                                            
+  |===================                                                   |  28%
+  |                                                                            
+  |====================                                                  |  28%
+  |                                                                            
+  |====================                                                  |  29%
+  |                                                                            
+  |=====================                                                 |  29%
+  |                                                                            
+  |=====================                                                 |  30%
+  |                                                                            
+  |=====================                                                 |  31%
+  |                                                                            
+  |======================                                                |  31%
+  |                                                                            
+  |======================                                                |  32%
+  |                                                                            
+  |=======================                                               |  32%
+  |                                                                            
+  |=======================                                               |  33%
+  |                                                                            
+  |=======================                                               |  34%
+  |                                                                            
+  |========================                                              |  34%
+  |                                                                            
+  |========================                                              |  35%
+  |                                                                            
+  |=========================                                             |  35%
+  |                                                                            
+  |=========================                                             |  36%
+  |                                                                            
+  |==========================                                            |  37%
+  |                                                                            
+  |==========================                                            |  38%
+  |                                                                            
+  |===========================                                           |  38%
+  |                                                                            
+  |===========================                                           |  39%
+  |                                                                            
+  |============================                                          |  39%
+  |                                                                            
+  |============================                                          |  40%
+  |                                                                            
+  |============================                                          |  41%
+  |                                                                            
+  |=============================                                         |  41%
+  |                                                                            
+  |=============================                                         |  42%
+  |                                                                            
+  |==============================                                        |  42%
+  |                                                                            
+  |==============================                                        |  43%
+  |                                                                            
+  |==============================                                        |  44%
+  |                                                                            
+  |===============================                                       |  44%
+  |                                                                            
+  |===============================                                       |  45%
+  |                                                                            
+  |================================                                      |  45%
+  |                                                                            
+  |================================                                      |  46%
+  |                                                                            
+  |=================================                                     |  47%
+  |                                                                            
+  |=================================                                     |  48%
+  |                                                                            
+  |==================================                                    |  48%
+  |                                                                            
+  |==================================                                    |  49%
+  |                                                                            
+  |===================================                                   |  49%
+  |                                                                            
+  |===================================                                   |  50%
+  |                                                                            
+  |===================================                                   |  51%
+  |                                                                            
+  |====================================                                  |  51%
+  |                                                                            
+  |====================================                                  |  52%
+  |                                                                            
+  |=====================================                                 |  52%
+  |                                                                            
+  |=====================================                                 |  53%
+  |                                                                            
+  |======================================                                |  54%
+  |                                                                            
+  |======================================                                |  55%
+  |                                                                            
+  |=======================================                               |  55%
+  |                                                                            
+  |=======================================                               |  56%
+  |                                                                            
+  |========================================                              |  57%
+  |                                                                            
+  |========================================                              |  58%
+  |                                                                            
+  |=========================================                             |  58%
+  |                                                                            
+  |=========================================                             |  59%
+  |                                                                            
+  |==========================================                            |  59%
+  |                                                                            
+  |==========================================                            |  60%
+  |                                                                            
+  |==========================================                            |  61%
+  |                                                                            
+  |===========================================                           |  61%
+  |                                                                            
+  |===========================================                           |  62%
+  |                                                                            
+  |============================================                          |  62%
+  |                                                                            
+  |============================================                          |  63%
+  |                                                                            
+  |=============================================                         |  64%
+  |                                                                            
+  |=============================================                         |  65%
+  |                                                                            
+  |==============================================                        |  65%
+  |                                                                            
+  |==============================================                        |  66%
+  |                                                                            
+  |===============================================                       |  66%
+  |                                                                            
+  |===============================================                       |  67%
+  |                                                                            
+  |===============================================                       |  68%
+  |                                                                            
+  |================================================                      |  68%
+  |                                                                            
+  |================================================                      |  69%
+  |                                                                            
+  |=================================================                     |  69%
+  |                                                                            
+  |=================================================                     |  70%
+  |                                                                            
+  |=================================================                     |  71%
+  |                                                                            
+  |==================================================                    |  71%
+  |                                                                            
+  |==================================================                    |  72%
+  |                                                                            
+  |===================================================                   |  72%
+  |                                                                            
+  |===================================================                   |  73%
+  |                                                                            
+  |====================================================                  |  74%
+  |                                                                            
+  |====================================================                  |  75%
+  |                                                                            
+  |=====================================================                 |  75%
+  |                                                                            
+  |=====================================================                 |  76%
+  |                                                                            
+  |======================================================                |  76%
+  |                                                                            
+  |======================================================                |  77%
+  |                                                                            
+  |======================================================                |  78%
+  |                                                                            
+  |=======================================================               |  78%
+  |                                                                            
+  |=======================================================               |  79%
+  |                                                                            
+  |========================================================              |  79%
+  |                                                                            
+  |========================================================              |  80%
+  |                                                                            
+  |========================================================              |  81%
+  |                                                                            
+  |=========================================================             |  81%
+  |                                                                            
+  |=========================================================             |  82%
+  |                                                                            
+  |==========================================================            |  82%
+  |                                                                            
+  |==========================================================            |  83%
+  |                                                                            
+  |==========================================================            |  84%
+  |                                                                            
+  |===========================================================           |  84%
+  |                                                                            
+  |===========================================================           |  85%
+  |                                                                            
+  |============================================================          |  85%
+  |                                                                            
+  |============================================================          |  86%
+  |                                                                            
+  |=============================================================         |  86%
+  |                                                                            
+  |=============================================================         |  87%
+  |                                                                            
+  |=============================================================         |  88%
+  |                                                                            
+  |==============================================================        |  88%
+  |                                                                            
+  |==============================================================        |  89%
+  |                                                                            
+  |===============================================================       |  90%
+  |                                                                            
+  |================================================================      |  91%
+  |                                                                            
+  |================================================================      |  92%
+  |                                                                            
+  |=================================================================     |  92%
+  |                                                                            
+  |=================================================================     |  93%
+  |                                                                            
+  |==================================================================    |  94%
+  |                                                                            
+  |==================================================================    |  95%
+  |                                                                            
+  |===================================================================   |  95%
+  |                                                                            
+  |===================================================================   |  96%
+  |                                                                            
+  |====================================================================  |  96%
+  |                                                                            
+  |====================================================================  |  97%
+  |                                                                            
+  |====================================================================  |  98%
+  |                                                                            
+  |===================================================================== |  98%
+  |                                                                            
+  |===================================================================== |  99%
+  |                                                                            
+  |======================================================================|  99%
+  |                                                                            
+  |======================================================================| 100%</code></pre>
+<pre class="r"><code>acs2 &lt;- acs %&gt;%
+    st_drop_geometry() %&gt;% 
+    clean_names() %&gt;%
+    pivot_wider(names_from = variable, values_from = estimate, id_cols = name) %&gt;%
+    left_join(st_drop_geometry(acs) %&gt;% 
+                  clean_names() %&gt;%
+                  separate(name, into = c(&quot;county&quot;, &quot;state&quot;), 
+                           sep = &quot;, &quot;, remove = FALSE) %&gt;%
+                  select(name, county, state)) %&gt;%
+    relocate(state, county) %&gt;%
+    distinct() %&gt;%
+    left_join(fips_codes %&gt;% 
+                  select(-state) %&gt;% 
+                  unite(fips_code, c(state_code, county_code), sep = &quot;&quot;), 
+              by= c(&quot;state&quot; = &quot;state_name&quot;, &quot;county&quot;)) %&gt;%
+    mutate(medicaid_perc = medicaid / tot_pop,
+           pov_perc = poverty / tot_pop,
+           college = ba + ma + pd + phd, 
+           college_perc = college / tot_pop,
+           white_perc = tot_white / tot_pop,
+           black_perc = tot_black / tot_pop,
+           ai_perc = tot_ai / tot_pop,
+           asian_perc = tot_asian / tot_pop,
+           other_state_perc = born_other_state / tot_pop,
+           income_per_cap = income / tot_pop) </code></pre>
+<p>Then I’ll pull in the 2020 presidential voting data by county from a few helpful GitHub sites. Note that Alaska presents some difficulties because its election returns are variously reported by either state house districts (where there are 40) and by boroughs (where there are 19, plus 11 census areas within an unorganized district). While I standardized the results for the 2016 and 2020 elections by district for Alaska, the ACP data is by borough (and 2020 election data hasn’t been updated by borough yet), so Alaska data isn’t included in the ACP comparison charts below.</p>
+<pre class="r"><code>states &lt;- tibble(state.abb, state.name, state.region) %&gt;%
+    rename(state = state.name)
+
+pres20 &lt;- read_csv(&quot;https://github.com/tonmcg/US_County_Level_Election_Results_08-20/raw/master/2020_US_County_Level_Presidential_Results.csv&quot;) %&gt;%
+    mutate(election = 2020) %&gt;%
+    left_join(states, by = c(&quot;state_name&quot; = &quot;state&quot;)) %&gt;%
+    rename(fips_code = county_fips, county = county_name, 
+           state_abbr = state.abb, state = state_name) %&gt;%
+    mutate(dem_margin = per_dem - per_gop)</code></pre>
+<pre><code>## 
+## -- Column specification --------------------------------------------------------
+## cols(
+##   state_name = col_character(),
+##   county_fips = col_character(),
+##   county_name = col_character(),
+##   votes_gop = col_double(),
+##   votes_dem = col_double(),
+##   total_votes = col_double(),
+##   diff = col_double(),
+##   per_gop = col_double(),
+##   per_dem = col_double(),
+##   per_point_diff = col_double()
+## )</code></pre>
+<pre class="r"><code>alaska &lt;- read_csv(&quot;https://github.com/MEDSL/county-returns/blob/master/countypres_2000-2016.csv?raw=true&quot;) %&gt;%
+    clean_names() %&gt;%
+    filter(state == &quot;Alaska&quot;,
+           year == 2016) %&gt;%
+    select(state, county, party, candidate_votes = candidatevotes, 
+           total_votes = totalvotes) %&gt;%
+    mutate(party_perc = candidate_votes / total_votes) %&gt;%
+    pivot_wider(names_from = party, values_from = party_perc, id_cols = county) %&gt;%
+    rename(per_dem = democrat, per_gop = republican) %&gt;%
+    mutate(dem_margin = per_dem - per_gop,
+           state = &quot;Alaska&quot;,
+           election = 2016) %&gt;%
+    select(-&quot;NA&quot;) %&gt;%
+    filter(county != &quot;District 99&quot;) %&gt;%
+    bind_cols(pres20 %&gt;% filter(state == &quot;Alaska&quot;) %&gt;% select(fips_code))</code></pre>
+<pre><code>## 
+## -- Column specification --------------------------------------------------------
+## cols(
+##   year = col_double(),
+##   state = col_character(),
+##   state_po = col_character(),
+##   county = col_character(),
+##   FIPS = col_double(),
+##   office = col_character(),
+##   candidate = col_character(),
+##   party = col_character(),
+##   candidatevotes = col_double(),
+##   totalvotes = col_double(),
+##   version = col_double()
+## )</code></pre>
+<pre class="r"><code>pres16 &lt;- read_csv(&quot;https://github.com/tonmcg/US_County_Level_Election_Results_08-20/raw/master/2016_US_County_Level_Presidential_Results.csv&quot;) %&gt;%
+    left_join(states, by = c(&quot;state_abbr&quot; = &quot;state.abb&quot;)) %&gt;%
+    rename(county = county_name) %&gt;%
+    mutate(per_point_diff = parse_number(per_point_diff),
+           per_point_diff = per_point_diff / 100,
+           election = 2016,
+           fips_code = if_else(str_length(combined_fips) == 4, 
+                                   paste0(0, combined_fips),
+                                   as.character(combined_fips)),
+           dem_margin = per_dem - per_gop,
+           county = if_else(fips_code == &quot;46113&quot;, &quot;Oglala Lakota County&quot;, county),
+           fips_code = if_else(fips_code == &quot;46113&quot;, &quot;46102&quot;, fips_code)) %&gt;%
+    select(-c(X1, combined_fips)) %&gt;%
+    distinct() %&gt;%
+    filter(state != &quot;Alaska&quot;) %&gt;%
+    bind_rows(alaska)</code></pre>
+<pre><code>## Warning: Missing column names filled in: &#39;X1&#39; [1]</code></pre>
+<pre><code>## 
+## -- Column specification --------------------------------------------------------
+## cols(
+##   X1 = col_double(),
+##   votes_dem = col_double(),
+##   votes_gop = col_double(),
+##   total_votes = col_double(),
+##   per_dem = col_double(),
+##   per_gop = col_double(),
+##   diff = col_number(),
+##   per_point_diff = col_character(),
+##   state_abbr = col_character(),
+##   county_name = col_character(),
+##   combined_fips = col_double()
+## )</code></pre>
+<pre class="r"><code>pres &lt;- pres20 %&gt;%
+    bind_rows(pres16) %&gt;%
+    mutate(election = paste0(&quot;dem_perc&quot;, election),
+           state_county = paste(state, county, sep = &quot;_&quot;)) %&gt;%
+    pivot_wider(names_from = election, values_from = c(per_dem, total_votes, dem_margin),
+                id_cols = fips_code) %&gt;%
+    left_join(pres20 %&gt;% select(state, county, fips_code)) %&gt;%
+    rename(total_votes20 = 4, total_votes16 = 5,
+           dem_perc20 = 2, dem_perc16 = 3,
+           dem_margin20 = 6, dem_margin16 = 7) %&gt;%
+    mutate(dem_perc_dif = dem_perc20 - dem_perc16, 
+           dem_margin_dif = (dem_margin20 - dem_margin16),
+           total_votes_dif = total_votes20 - total_votes16) %&gt;%
+    relocate(state, county) </code></pre>
+<pre><code>## Joining, by = &quot;fips_code&quot;</code></pre>
+<p>One of the articles that made me want to dig into this data myself was from <a href="https://www.bloomberg.com/graphics/2020-suburban-density-election/">Bloomberg</a> (as seen in <a href="https://nymag.com/intelligencer/2020/12/democrats-rural-voters-2024-workers-wages-weed.html">New York Magazine</a>), which used county classifications from the <a href="https://www.americancommunities.org/methodology/">American Communities Project</a> to see how types of counties shifted their votes from 2016 to 2020.</p>
+<p>The ACP data is really interesting – from the methodology page is sounds like they did some k-means clustering of 36 different county-level variables to find 15 different county types – things like “Exurbs” and “Military Hubs”, but also “Evangelical Hubs” and “Aging Farmlands”. These aren’t mutually-exclusive categories (i.e. there might be suburban counties that are tagged as Military Posts, for example), but they’re still useful categories for how we actually think about communities across the country.</p>
+<p>For example, Chattahoochee County is home to Ft. Benning, a U.S. Army base near Columbus, GA. It’s a rural part of the state, but near medium-sized Columbus. With Ft. Benning in its borders, Chattahoochee County (and neighboring Muscogee County) has a distinct feel compared with other medium-sized cities in rural counties, and “Military Hub” captures its feel more than simply a classification based on just population density.</p>
+<pre class="r"><code>communities &lt;- readxl::read_xlsx(&quot;C:\\Users\\ChadPeltier\\Downloads\\County-Type-Share.xlsx&quot;) %&gt;%
+    clean_names() 
+
+communities_key &lt;- communities %&gt;%
+    slice_head(n = 15) %&gt;%
+    select(key, new_names)
+    
+communities2 &lt;- communities %&gt;%
+    left_join(communities_key, by = c(&quot;type_number_2&quot; = &quot;key&quot;)) %&gt;%
+    rename(acp_county_type = new_names.y, fips_code = fips) %&gt;%
+    select(3,8) %&gt;%
+    mutate(fips_code = if_else(str_length(fips_code) == 4, paste0(0, fips_code),
+                              as.character(fips_code)),
+           fips_code = as.character(fips_code))</code></pre>
+<p>However, it’s also useful to have an alternative county classification system with mutually-exclusive boundaries to use as well. Here’s the <a href="https://www.cdc.gov/nchs/data_access/urban_rural.htm#:~:text=NCHS%20has%20developed%20a%20six,of%20nonmetropolitan%20%E2%80%9Cnoncore%E2%80%9D%20counties">NCHS county codes</a> data from the CDC:</p>
+<pre class="r"><code>nchs &lt;- readxl::read_xlsx(&quot;C:\\Users\\ChadPeltier\\Downloads\\NCHSURCodes2013.xlsx&quot;) %&gt;%
+    clean_names() %&gt;%
+    rename(nchs_code = 7) %&gt;%
+    mutate(fips_code = if_else(str_length(fips_code) == 4, paste0(0, fips_code),
+                              as.character(fips_code)),
+           fips_code = as.character(fips_code),
+           nchs_code = case_when(nchs_code == 1 ~ &quot;Large central metro&quot;, 
+                                 nchs_code == 2 ~ &quot;Large fringe metro&quot;,
+                                 nchs_code == 3 ~ &quot;Medium metro&quot;,
+                                 nchs_code == 4 ~ &quot;Small metro&quot;,
+                                 nchs_code == 5 ~ &quot;Micropolitan&quot;,
+                                 nchs_code == 6 ~ &quot;Noncore&quot;)) %&gt;%
+    select(fips_code, nchs_code)</code></pre>
+<p>Finally we can combine all of these together into a single dataframe.</p>
+<pre class="r"><code>combined &lt;- pres %&gt;%
+    left_join(acs2 %&gt;% select(-c(state, county)), by = &quot;fips_code&quot;) %&gt;%
+    left_join(communities2) %&gt;%
+    left_join(nchs) %&gt;%
+    mutate(turnout20 = total_votes20 / tot_pop,
+           turnout16 = total_votes16 / tot_pop,
+           turnout_dif = turnout20 - turnout16) %&gt;%
+    relocate(name, county, nchs_code, acp_county_type) 
+
+ga &lt;- combined %&gt;%
+    filter(state == &quot;Georgia&quot;) %&gt;%
+    mutate(county = str_remove(county, &quot; County&quot;))</code></pre>
+<div id="lets-make-some-charts" class="section level3">
+<h3>Let’s make some charts!</h3>
+<p>Ok, we’ll start off with a recreation of the Bloomberg chart, but with three variations. Essentially the charts below show Democrats’ margins by ACP county type for both Georgia counties only and the entire US, for both 2020 margins only, and 2020 Democrat margins compared with 2016 Democrat margins.</p>
+<pre class="r"><code>## Dem margin shift 2020-2016
+p1 &lt;- ga %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(dem_margin_dif = mean(dem_margin_dif, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(dem_margin_dif, reorder(acp_county_type, dem_margin_dif), 
+               color = cut(dem_margin_dif, c(-Inf, 0, 0.03, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = dem_margin_dif, y = acp_county_type, 
+                     yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;GA Democratic Shifts in 2020 by County&quot;,
+         subtitle = &quot;Difference in vote margin between 2016 and 2020&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,0]&quot; = &quot;red&quot;,
+                                  &quot;(0,0.03]&quot; = &quot;purple&quot;,
+                                  &quot;(0.03, Inf]&quot; = &quot;royalblue&quot;)) + 
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>p2 &lt;- combined %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(dem_margin_dif = mean(dem_margin_dif, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(dem_margin_dif, reorder(acp_county_type, dem_margin_dif), 
+               color = cut(dem_margin_dif, c(-Inf, 0, 0.03, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = dem_margin_dif, y = acp_county_type, yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;US Democratic Shifts in 2020 by County&quot;,
+         subtitle = &quot;Difference in vote margin between 2016 and 2020&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,0]&quot; = &quot;red&quot;,
+                                  &quot;(0,0.03]&quot; = &quot;purple&quot;,
+                                  &quot;(0.03, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>## Dem Margin in 2020
+p3 &lt;- ga %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(dem_margin20 = mean(dem_margin20, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(dem_margin20, reorder(acp_county_type, dem_margin20), 
+               color = cut(dem_margin20, c(-Inf, -0.025, 0.025, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = dem_margin20, y = acp_county_type, yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;GA 2020 Democrat Margin by County&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,-0.025]&quot; = &quot;red&quot;,
+                                  &quot;(-0.025,0.025]&quot; = &quot;purple&quot;,
+                                  &quot;(0.025, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>p4 &lt;- combined %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(dem_margin20 = mean(dem_margin20, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(dem_margin20, reorder(acp_county_type, dem_margin20), 
+               color = cut(dem_margin20, c(-Inf, -0.025, 0.025, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = dem_margin20, y = acp_county_type, yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;US 2020 Democrat Margin by County&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,-0.025]&quot; = &quot;red&quot;,
+                                  &quot;(-0.025,0.025]&quot; = &quot;purple&quot;,
+                                  &quot;(0.025, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>p1 + p2 + p3 + p4</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-7-1.png" width="672" /></p>
+<pre class="r"><code>#ggsave(&quot;test.png&quot;, width = 16/1.2, height = 9/1.2)</code></pre>
+<p>So the top two charts compare Democratic margins in 2020 with 2016, for both the entire US and Georgia-only. The bottom two charts look at Democrats’ margins in 2020 only for the US and Georgia-only. Lots of takeaways here:</p>
+<ul>
+<li>As a national baseline, Democrats relied on big cities and urban suburbs in 2020, along with 50-50 performances in college towns and Native American lands. That’s kind of astounding, and speaks to the intense geographic polarization in the US right now. Despite winning the popular vote in seven of the last eight elections, including by <a href="https://cookpolitical.com/2020-national-popular-vote-tracker">4.5% in 2020</a>, Democrats only won two of 15 different types of counties.</li>
+<li>While Democrats relied on big cities and their suburbs for Biden’s win, the biggest movements nationally were in exurbs, military posts, and college towns, followed closely by urban suburbs. What’s interesting there is that urban suburbs were really the stars of the 2020 show for Democrats. Not only did they have the 4th-largest swing in Democrats’ favor compared with 2016, but Democrats also had a positive margin in these counties overall. The same can’t be said for exurbs, military hubs, and college towns, where Democrats had negative margins nationally, so the large swings in these counties were more about shoring up weaknesses than actually getting in the black.</li>
+<li>The 2020-only Georgia chart looks very similar to the national chart, with the exception that college towns are very slightly in Democrats’ favor (thanks to Athens).</li>
+<li>But the 2020-2016 Georgia-only comparison chart looks <em>much</em> different. Democrats gained in all but two county types (Evangelical Hubs and the African American South), with <em>gigantic</em> gains in urban suburbs and exurbs. In fact, exurb Forsyth County, where I grew up and my parents still live, had the third-largest swing (14.5%) in Democratic 2020-2016 margin of counties in Georgia. Democrats still only captured 32.6% of the vote there, but that’s nevertheless a remarkable swing for a county that had the Democrats almost 48% underwater in 2016.</li>
+<li>This chart also helps confirm what many other data analysts have already noted – that Georgia Democrats can thank a combination of counties with high Black populations (typically in Atlanta’s southern suburbs like Henry and Rockdale counties) along with northern Atlanta suburbs shifting decidedly to the Democrats.</li>
+</ul>
+<p>The chart below shows Georgia’s 2020 Democratic margins by county, but without grouping by county type first, and with sizing the points based on the total number of 2020 votes.</p>
+<pre class="r"><code>ga %&gt;%
+    ggplot(aes(dem_margin20, reorder(acp_county_type, dem_margin20), 
+               color = cut(dem_margin20, c(-Inf, -0.025, 0.025, Inf)))) +
+    geom_point(aes(alpha = 0.3, size = total_votes20)) + 
+    #geom_boxplot() + 
+    ggrepel::geom_text_repel(data = ga %&gt;% filter(total_votes20 &gt; 200000), aes(label = county)) + 
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;GA 2020 Democrat Margin by County&quot;) +
+    geom_vline(xintercept = 0, linetype = &quot;dashed&quot;) + 
+    scale_color_manual(values = c(&quot;(-Inf,-0.025]&quot; = &quot;red&quot;,
+                                  &quot;(-0.025,0.025]&quot; = &quot;purple&quot;,
+                                  &quot;(0.025, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-8-1.png" width="672" /></p>
+<p>Here again we can see the impact from large suburbs like Dekalb (my home county), Gwinnett, and Cobb (where the Braves’ stadium is located) counties. Notably, Democrats didn’t win a single county classified as a Hispanic Center, Graying America (of which there was only one in Georgia), Evangelical Hub (of which there are <em>many</em>), Working Class County, or Rural Middle America (again, with only one example in Georgia).</p>
+<p>Turnout was a <em>little</em> bit of a different story. While exurbs and big cities had the biggest increases (which was crucial for Democrats, since exurbs were Democrats’ largest improvement and big cities are Democrats’ base), Graying America and Working Class Counties were third and fourth in turnout increases, which is why the overall margin was still so tight:</p>
+<pre class="r"><code>## Turnout diff
+ga %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(turnout_dif = mean(turnout_dif, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(turnout_dif, reorder(acp_county_type, turnout_dif), 
+               color = turnout_dif)) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = turnout_dif, y = acp_county_type, yend = acp_county_type), size = 1) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;GA Turnout Shifts in 2020 by County&quot;,
+         subtitle = &quot;Difference in total turnout between 2016 and 2020&quot;) +
+    theme(legend.position = &quot;none&quot;)  +
+    scale_x_continuous(labels = scales::percent_format())</code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>We can do a similar analysis just using ACS demographic data. This is inspired by the precinct-level chart in <a href="https://www.nytimes.com/interactive/2020/11/17/upshot/georgia-precinct-shift-suburbs.html">this NYT article</a>.</p>
+<pre class="r"><code>ga %&gt;% 
+    summarize(maj_black = mean(dem_margin_dif[black_perc &gt; 0.5]),
+              rural = mean(dem_margin_dif[nchs_code == &quot;Noncore&quot;]),
+              suburban = mean(dem_margin_dif[acp_county_type == &quot;Urban Suburbs&quot;]),
+              urban = mean(dem_margin_dif[acp_county_type == &quot;Big Cities&quot;]),
+              white_working = mean(dem_margin_dif[white_perc &gt;= .8 &amp; college_perc &lt;= .25]),
+              maj_college = mean(dem_margin_dif[college &gt;= 0.5])) %&gt;%
+    pivot_longer(everything()) %&gt;%
+    ggplot(aes(value, reorder(name, value), 
+               color = cut(value, c(-Inf, -0.012, 0.012, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = value, y = name, yend = name), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;GA Democrat Margin 2020 vs. 2016 by Group&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,-0.012]&quot; = &quot;red&quot;,
+                                  &quot;(-0.012,0.012]&quot; = &quot;purple&quot;,
+                                  &quot;(0.012, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+</div>
+<div id="map-time" class="section level3">
+<h3>Map Time</h3>
+<p>Alright, let’s make some maps. We’ll bring in that ACS dataframe with the county boundaries as simple features first.</p>
+<pre class="r"><code>acs_sf &lt;- acs %&gt;%
+    clean_names() %&gt;%
+    separate(name, into = c(&quot;county&quot;, &quot;state&quot;), 
+                           sep = &quot;, &quot;, remove = FALSE) %&gt;%
+                  select(name, county, state) %&gt;%
+    filter(state == &quot;Georgia&quot;) %&gt;% 
+    left_join(fips_codes %&gt;% 
+                  select(-state) %&gt;% 
+                  rename(state = state_name) %&gt;% 
+                  unite(fips_code, state_code, county_code, sep = &quot;&quot;)) %&gt;%
+    select(fips_code, geometry) %&gt;% 
+    distinct(fips_code)
+
+ga_sf &lt;- acs_sf %&gt;%
+    left_join(ga)</code></pre>
+<p>Next, let’s take a look at Metro Atlanta counties, just to get a sense of which counties are where.</p>
+<pre class="r"><code>ga_sf %&gt;%
+    filter(acp_county_type %in% c(&quot;Urban Suburbs&quot;, &quot;Exurbs&quot;, &quot;Big Cities&quot;)) %&gt;% 
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = acp_county_type)) +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.border = element_blank(),
+          panel.background = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text = element_blank()) +
+    labs(x = &quot;&quot;, y = &quot;&quot;) + 
+    #scale_fill_viridis_d(direction = -1) +
+    geom_text(aes(label = county, geometry = geometry),
+              #color = &quot;white&quot;,
+              size = 3,
+              stat = &quot;sf_coordinates&quot;) +
+     coord_sf(xlim = c(-85.484619,-83.111573), 
+             ylim = c(33.275436,34.524662)) </code></pre>
+<pre><code>## Warning in st_point_on_surface.sfc(sf::st_zm(x)): st_point_on_surface may not
+## give correct results for longitude/latitude data</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-12-1.png" width="672" /></p>
+<p>Alright, now we can make some maps showing Democrats’ margins and turnout in 2020 and in comparison with 2016. I did a little reading about how election result maps are drawn. Apparently the “everything is purple” maps <a href="https://medium.com/matter/the-trouble-with-the-purple-election-map-31e6cb9f1827">have their own downsides</a>, even if we know that simple red-and-blue-only-states maps obscure a lot of important information. As a result I decided on a blue-red color gradient that uses a gray/white in the middle of the scale. There, it’s much easier to differentiate the gradients for both red- and blue-leaning counties.</p>
+<pre class="r"><code>p1 &lt;- ga_sf %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = dem_margin20)) +
+    theme_void() +
+    scale_fill_gradient2(low = &quot;#ca0020&quot;, high = &quot;#0571b0&quot;,
+                         labels = scales::percent_format()) +
+    labs(title = &quot;Democratic Margin 2020&quot;) +
+    theme(legend.title = element_blank())
+
+p2 &lt;- ga_sf %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = dem_margin_dif)) +
+    theme_void() +
+    scale_fill_gradient2(low = &quot;#ca0020&quot;, high = &quot;#0571b0&quot;,
+                         labels = scales::percent_format()) +
+    labs(title = &quot;Democratic Margin Difference 2020-2016&quot;) +
+    theme(legend.title = element_blank())
+
+p3 &lt;- ga_sf %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = turnout20)) +
+    theme_void() +
+    scale_fill_fermenter(palette = &quot;Blues&quot;, direction = 1,
+                         labels = scales::percent_format()) + 
+    labs(title = &quot;Turnout 2020&quot;) +
+    theme(legend.title = element_blank())
+
+
+p1 + p2</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-13-1.png" width="672" /></p>
+<pre class="r"><code>#ggsave(&quot;ga_maps2.png&quot;, width = 16/1.2, height = 9/1.2)
+
+p3 </code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-13-2.png" width="672" /></p>
+<pre class="r"><code>#ggsave(&quot;ga_maps.png&quot;, width = 16/1.2, height = 9/1.2)</code></pre>
+<p>The analysis by ACP county types above is really helpful for understanding how Georgia became a blue state in 2020, but I think it’s also useful to see the geographic separation between red and blue Georgia in map form. Here it’s easy to see that Democrats rely on metro Atlanta and its surrounding suburbs, while also getting significant margins from counties with significant Black turnout in middle Georgia. But the margin difference map is pretty astounding. While many counties didn’t flip entirely for the Democrats, they gained enough ground across the entire state to put Biden over the edge. And the impact of suburban Atlanta is never more clear than in this map, where the deepest blues surround Fulton County.</p>
+<pre class="r"><code>ga %&gt;%
+    select(county, acp_county_type, dem_margin20, dem_margin_dif) %&gt;%
+    arrange(desc(dem_margin_dif)) %&gt;%
+    # slice_head(n = 10) %&gt;% 
+    gt(rowname_col = vars(county)) %&gt;%
+    tab_header(title = &quot;Georgia 2020 Presidential by County&quot;) %&gt;%
+    cols_label(acp_county_type = &quot;County Type&quot;, county = &quot;County&quot;, 
+               dem_margin20 = &quot;Democrat Margin 2020&quot;, 
+               dem_margin_dif = &quot;Democrat Margin 2020 - 2016&quot;) %&gt;%
+    fmt_percent(columns = vars(dem_margin20, dem_margin_dif)) %&gt;%
+    data_color(columns = vars(dem_margin20),
+               colors = scales::col_bin(palette = c(&quot;red2&quot;, &quot;blue2&quot;), 
+                                        bins = 2,
+                                        domain = c(-40,40)))</code></pre>
+<style>html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+}
+
+#lxcpbowgvj .gt_table {
+  display: table;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#lxcpbowgvj .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 0;
+  padding-bottom: 4px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#lxcpbowgvj .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#lxcpbowgvj .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#lxcpbowgvj .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#lxcpbowgvj .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#lxcpbowgvj .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#lxcpbowgvj .gt_group_heading {
+  padding: 8px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#lxcpbowgvj .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#lxcpbowgvj .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#lxcpbowgvj .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#lxcpbowgvj .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#lxcpbowgvj .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 12px;
+}
+
+#lxcpbowgvj .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#lxcpbowgvj .gt_first_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#lxcpbowgvj .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#lxcpbowgvj .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding: 4px;
+}
+
+#lxcpbowgvj .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#lxcpbowgvj .gt_sourcenote {
+  font-size: 90%;
+  padding: 4px;
+}
+
+#lxcpbowgvj .gt_left {
+  text-align: left;
+}
+
+#lxcpbowgvj .gt_center {
+  text-align: center;
+}
+
+#lxcpbowgvj .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#lxcpbowgvj .gt_font_normal {
+  font-weight: normal;
+}
+
+#lxcpbowgvj .gt_font_bold {
+  font-weight: bold;
+}
+
+#lxcpbowgvj .gt_font_italic {
+  font-style: italic;
+}
+
+#lxcpbowgvj .gt_super {
+  font-size: 65%;
+}
+
+#lxcpbowgvj .gt_footnote_marks {
+  font-style: italic;
+  font-size: 65%;
+}
+</style>
+<div id="lxcpbowgvj" style="overflow-x:auto;overflow-y:auto;width:auto;height:auto;"><table class="gt_table">
+  <thead class="gt_header">
+    <tr>
+      <th colspan="4" class="gt_heading gt_title gt_font_normal" style>Georgia 2020 Presidential by County</th>
+    </tr>
+    <tr>
+      <th colspan="4" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style></th>
+    </tr>
+  </thead>
+  <thead class="gt_col_headings">
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1">County</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1">County Type</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1">Democrat Margin 2020</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1">Democrat Margin 2020 - 2016</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr>
+      <td class="gt_row gt_left">Henry</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">20.48&percnt;</td>
+      <td class="gt_row gt_right">16.13&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Rockdale</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">40.78&percnt;</td>
+      <td class="gt_row gt_right">14.86&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Forsyth</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;33.19&percnt;</td>
+      <td class="gt_row gt_right">14.47&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Douglas</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">25.12&percnt;</td>
+      <td class="gt_row gt_right">14.37&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Fayette</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;6.80&percnt;</td>
+      <td class="gt_row gt_right">12.71&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Gwinnett</td>
+      <td class="gt_row gt_left">Urban Suburbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">18.26&percnt;</td>
+      <td class="gt_row gt_right">12.52&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Cobb</td>
+      <td class="gt_row gt_left">Urban Suburbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">14.33&percnt;</td>
+      <td class="gt_row gt_right">12.24&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Paulding</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;29.08&percnt;</td>
+      <td class="gt_row gt_right">12.17&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Columbia</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;25.79&percnt;</td>
+      <td class="gt_row gt_right">11.91&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Cherokee</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;39.23&percnt;</td>
+      <td class="gt_row gt_right">10.77&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Houston</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;12.43&percnt;</td>
+      <td class="gt_row gt_right">9.22&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Newton</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">10.92&percnt;</td>
+      <td class="gt_row gt_right">8.57&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lee</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;44.57&percnt;</td>
+      <td class="gt_row gt_right">8.42&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bryan</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;35.16&percnt;</td>
+      <td class="gt_row gt_right">8.01&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Hall</td>
+      <td class="gt_row gt_left">Hispanic Centers</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;43.24&percnt;</td>
+      <td class="gt_row gt_right">7.42&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Barrow</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;43.12&percnt;</td>
+      <td class="gt_row gt_right">7.27&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Walton</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;49.24&percnt;</td>
+      <td class="gt_row gt_right">7.20&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Coweta</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;35.54&percnt;</td>
+      <td class="gt_row gt_right">6.77&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Oconee</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;33.51&percnt;</td>
+      <td class="gt_row gt_right">6.60&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Webster</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;7.76&percnt;</td>
+      <td class="gt_row gt_right">6.51&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lowndes</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;12.03&percnt;</td>
+      <td class="gt_row gt_right">6.15&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Effingham</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;49.55&percnt;</td>
+      <td class="gt_row gt_right">6.08&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jackson</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;58.02&percnt;</td>
+      <td class="gt_row gt_right">5.86&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Glynn</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;23.19&percnt;</td>
+      <td class="gt_row gt_right">5.44&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Muscogee</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">24.02&percnt;</td>
+      <td class="gt_row gt_right">5.43&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Richmond</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">37.17&percnt;</td>
+      <td class="gt_row gt_right">4.79&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Catoosa</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;55.95&percnt;</td>
+      <td class="gt_row gt_right">4.75&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bartow</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;50.69&percnt;</td>
+      <td class="gt_row gt_right">4.51&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Long</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;26.37&percnt;</td>
+      <td class="gt_row gt_right">4.46&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Dawson</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;67.86&percnt;</td>
+      <td class="gt_row gt_right">4.37&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Chatham</td>
+      <td class="gt_row gt_left">Urban Suburbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">18.75&percnt;</td>
+      <td class="gt_row gt_right">4.27&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Fulton</td>
+      <td class="gt_row gt_left">Big Cities</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">46.39&percnt;</td>
+      <td class="gt_row gt_right">4.27&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Whitfield</td>
+      <td class="gt_row gt_left">Hispanic Centers</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;40.70&percnt;</td>
+      <td class="gt_row gt_right">4.06&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Clarke</td>
+      <td class="gt_row gt_left">College Towns</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">42.08&percnt;</td>
+      <td class="gt_row gt_right">4.03&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Tift</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;33.58&percnt;</td>
+      <td class="gt_row gt_right">3.84&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Madison</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;52.99&percnt;</td>
+      <td class="gt_row gt_right">3.70&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bibb</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">23.83&percnt;</td>
+      <td class="gt_row gt_right">3.61&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Rabun</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;57.38&percnt;</td>
+      <td class="gt_row gt_right">3.56&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Harris</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;44.33&percnt;</td>
+      <td class="gt_row gt_right">3.55&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Spalding</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;20.77&percnt;</td>
+      <td class="gt_row gt_right">3.47&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Pickens</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;65.74&percnt;</td>
+      <td class="gt_row gt_right">3.45&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Gilmer</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;63.52&percnt;</td>
+      <td class="gt_row gt_right">3.42&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Miller</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;46.51&percnt;</td>
+      <td class="gt_row gt_right">3.34&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Oglethorpe</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;38.77&percnt;</td>
+      <td class="gt_row gt_right">3.23&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Camden</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;30.74&percnt;</td>
+      <td class="gt_row gt_right">3.11&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Early</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;5.01&percnt;</td>
+      <td class="gt_row gt_right">3.08&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wilkes</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;13.18&percnt;</td>
+      <td class="gt_row gt_right">3.04&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Liberty</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">24.05&percnt;</td>
+      <td class="gt_row gt_right">2.87&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">DeKalb</td>
+      <td class="gt_row gt_left">Urban Suburbs</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">67.37&percnt;</td>
+      <td class="gt_row gt_right">2.62&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Sumter</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">4.78&percnt;</td>
+      <td class="gt_row gt_right">2.55&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Floyd</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;41.09&percnt;</td>
+      <td class="gt_row gt_right">2.46&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">White</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;66.22&percnt;</td>
+      <td class="gt_row gt_right">2.42&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Habersham</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;64.00&percnt;</td>
+      <td class="gt_row gt_right">2.35&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Thomas</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;19.48&percnt;</td>
+      <td class="gt_row gt_right">2.34&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Walker</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;59.29&percnt;</td>
+      <td class="gt_row gt_right">2.22&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Union</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;63.31&percnt;</td>
+      <td class="gt_row gt_right">2.20&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Worth</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;47.77&percnt;</td>
+      <td class="gt_row gt_right">2.19&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lumpkin</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;58.19&percnt;</td>
+      <td class="gt_row gt_right">1.83&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wayne</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;57.12&percnt;</td>
+      <td class="gt_row gt_right">1.75&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Dougherty</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">40.03&percnt;</td>
+      <td class="gt_row gt_right">1.72&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Toombs</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;45.22&percnt;</td>
+      <td class="gt_row gt_right">1.71&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Decatur</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;16.97&percnt;</td>
+      <td class="gt_row gt_right">1.64&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Troup</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;21.85&percnt;</td>
+      <td class="gt_row gt_right">1.59&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Candler</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;42.07&percnt;</td>
+      <td class="gt_row gt_right">1.53&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Ben Hill</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;26.17&percnt;</td>
+      <td class="gt_row gt_right">1.45&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Towns</td>
+      <td class="gt_row gt_left">Graying America</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;60.58&percnt;</td>
+      <td class="gt_row gt_right">1.43&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Ware</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;40.41&percnt;</td>
+      <td class="gt_row gt_right">1.33&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Quitman</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;9.67&percnt;</td>
+      <td class="gt_row gt_right">1.25&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Montgomery</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;49.91&percnt;</td>
+      <td class="gt_row gt_right">1.24&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Grady</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;31.90&percnt;</td>
+      <td class="gt_row gt_right">1.22&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Stephens</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;58.74&percnt;</td>
+      <td class="gt_row gt_right">1.17&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Carroll</td>
+      <td class="gt_row gt_left">College Towns</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;38.99&percnt;</td>
+      <td class="gt_row gt_right">1.15&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Gordon</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;62.50&percnt;</td>
+      <td class="gt_row gt_right">1.13&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Appling</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;57.04&percnt;</td>
+      <td class="gt_row gt_right">0.90&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Laurens</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;28.24&percnt;</td>
+      <td class="gt_row gt_right">0.88&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Tattnall</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;48.77&percnt;</td>
+      <td class="gt_row gt_right">0.86&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Fannin</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;64.64&percnt;</td>
+      <td class="gt_row gt_right">0.83&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Upson</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;34.12&percnt;</td>
+      <td class="gt_row gt_right">0.82&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jones</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;33.87&percnt;</td>
+      <td class="gt_row gt_right">0.82&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Dade</td>
+      <td class="gt_row gt_left">Rural Middle America</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;64.64&percnt;</td>
+      <td class="gt_row gt_right">0.80&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Polk</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;57.08&percnt;</td>
+      <td class="gt_row gt_right">0.43&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Banks</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;77.98&percnt;</td>
+      <td class="gt_row gt_right">0.43&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Clay</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">10.73&percnt;</td>
+      <td class="gt_row gt_right">0.42&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Turner</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;24.80&percnt;</td>
+      <td class="gt_row gt_right">0.31&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bleckley</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;52.86&percnt;</td>
+      <td class="gt_row gt_right">0.31&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Washington</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">0.79&percnt;</td>
+      <td class="gt_row gt_right">0.21&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Butts</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;43.60&percnt;</td>
+      <td class="gt_row gt_right">0.20&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Colquitt</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;47.17&percnt;</td>
+      <td class="gt_row gt_right">0.16&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Dodge</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;45.48&percnt;</td>
+      <td class="gt_row gt_right">0.05&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Berrien</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;66.51&percnt;</td>
+      <td class="gt_row gt_right">0.03&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jenkins</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;25.90&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.06&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Taliaferro</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">21.66&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.19&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Cook</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;40.38&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.25&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bulloch</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;23.73&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.27&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Morgan</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;41.67&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.32&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Murray</td>
+      <td class="gt_row gt_left">Working Class Country</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;69.16&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.40&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Baldwin</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">1.30&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.41&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Coffee</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;39.88&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.41&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">McDuffie</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;19.14&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.44&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lanier</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;41.67&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.46&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Greene</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;26.49&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.52&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Mitchell</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;10.51&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.58&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jeff Davis</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;63.54&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.64&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Glascock</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;79.68&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.76&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Putnam</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;40.85&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.87&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Franklin</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;69.45&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.87&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">McIntosh</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;20.97&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.88&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Telfair</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;30.85&percnt;</td>
+      <td class="gt_row gt_right">&minus;0.91&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Clayton</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">70.91&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.00&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Terrell</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">8.42&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.03&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Stewart</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">19.15&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.07&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Pierce</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;75.14&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.17&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lincoln</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;37.51&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.22&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Irwin</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;51.01&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.24&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Screven</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;18.92&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.29&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Monroe</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;42.80&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.37&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Evans</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;36.83&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.46&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Pike</td>
+      <td class="gt_row gt_left">Exurbs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;71.10&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.54&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Atkinson</td>
+      <td class="gt_row gt_left">Hispanic Centers</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;46.75&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.55&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Elbert</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;36.50&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.59&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Emanuel</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;38.58&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.62&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Peach</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;4.65&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.64&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Calhoun</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">15.47&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.78&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Pulaski</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;38.84&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.82&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Brooks</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;20.70&percnt;</td>
+      <td class="gt_row gt_right">&minus;1.96&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Charlton</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;50.66&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.10&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wilkinson</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;12.39&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.12&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Johnson</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;39.71&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.15&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Randolph</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">9.14&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.15&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Crisp</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;24.93&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.21&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Treutlen</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;37.34&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.23&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wheeler</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;39.12&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.26&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Haralson</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;73.98&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.36&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Chattahoochee</td>
+      <td class="gt_row gt_left">Military Posts</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;13.46&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.41&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Warren</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">11.40&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.41&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Lamar</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;41.03&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.53&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Seminole</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;34.90&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.56&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Brantley</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;81.21&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.58&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Schley</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;58.81&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.71&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Hart</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;49.56&percnt;</td>
+      <td class="gt_row gt_right">&minus;2.90&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Chattooga</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;61.79&percnt;</td>
+      <td class="gt_row gt_right">&minus;3.04&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Crawford</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;46.10&percnt;</td>
+      <td class="gt_row gt_right">&minus;3.19&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Echols</td>
+      <td class="gt_row gt_left">Hispanic Centers</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;75.57&percnt;</td>
+      <td class="gt_row gt_right">&minus;3.23&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Dooly</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;6.04&percnt;</td>
+      <td class="gt_row gt_right">&minus;3.93&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jefferson</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">6.82&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.02&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Macon</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">23.05&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.12&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Bacon</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;72.68&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.13&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Taylor</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;26.86&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.32&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Marion</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;26.57&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.32&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Talbot</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">20.50&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.32&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Burke</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;1.80&percnt;</td>
+      <td class="gt_row gt_right">&minus;4.35&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Clinch</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;47.57&percnt;</td>
+      <td class="gt_row gt_right">&minus;5.04&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Meriwether</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;20.57&percnt;</td>
+      <td class="gt_row gt_right">&minus;5.14&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wilcox</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;47.00&percnt;</td>
+      <td class="gt_row gt_right">&minus;5.15&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Twiggs</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;7.34&percnt;</td>
+      <td class="gt_row gt_right">&minus;5.76&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Heard</td>
+      <td class="gt_row gt_left">Evangelical Hubs</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;68.50&percnt;</td>
+      <td class="gt_row gt_right">&minus;6.04&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jasper</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;53.13&percnt;</td>
+      <td class="gt_row gt_right">&minus;6.43&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Baker</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #EE0000; color: #FFFFFF;">&minus;15.76&percnt;</td>
+      <td class="gt_row gt_right">&minus;7.08&percnt;</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Hancock</td>
+      <td class="gt_row gt_left">African American South</td>
+      <td class="gt_row gt_right" style="background-color: #0000EE; color: #FFFFFF;">43.87&percnt;</td>
+      <td class="gt_row gt_right">&minus;8.03&percnt;</td>
+    </tr>
+  </tbody>
+  
+  
+</table></div>
+<p>Let’s also look at how some demographic data is correlated by county.</p>
+<pre class="r"><code>ga %&gt;%
+  select(&quot;dem_margin_dif&quot;, &quot;income_per_cap&quot;, &quot;black_perc&quot;, &quot;college_perc&quot;,
+         &quot;white_perc&quot;, &quot;other_state_perc&quot;, &quot;pov_perc&quot;) %&gt;%
+  ggpairs(progress = FALSE) </code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-15-1.png" width="672" /></p>
+<p>Thanks to the amazing GGally package we can quickly get summary plots and correlations for a ton of data. There’s not a <em>ton</em> here that’s new, but it is interesting to see that counties with high per-capita income, significant percentages of college graduates, and who moved from another state in the last year were correlated with Democrats’ shift relative to 2016. These variables are all related – it seems that many new Georgians are moving to college-educated, Democratic counties with high incomes (like DeKalb, Cobb, and Gwinnett).</p>
+</div>
+</div>
+<div id="acs-stats-over-time" class="section level2">
+<h2>ACS stats over time</h2>
+<p>One of my main questions is whether demographic trends, particularly in the Atlanta suburbs, might give some indication for whether these swing voters might be more solidly democratic, or if we can expect some combination of ticket-splitting and/or reversion to the (Republican) mean. So we can pull ACS data from 2014 in addition to 2019 to get a sense for how things are changing.</p>
+<pre class="r"><code>acs_time &lt;- map_dfr(c(2014, 2019), ~ get_acs(geography = &quot;county&quot;,
+               variables = c(tot_pop = &quot;B01003_001&quot;, 
+                             age_male = &quot;B01002_002&quot;,
+                             age_female = &quot;B01002_003&quot;,
+                             ba = &quot;B15003_022&quot;,
+                             ma = &quot;B15003_023&quot;,
+                             pd = &quot;B15003_024&quot;,
+                             phd = &quot;B15003_025&quot;, 
+                             poverty = &quot;B17001_001&quot;,
+                             medicaid = &quot;C27007_001&quot;,
+                             tot_white = &quot;B02001_002&quot;,
+                             tot_black = &quot;B02001_003&quot;,
+                             tot_ai = &quot;B02001_004&quot;,
+                             tot_asian = &quot;B02001_005&quot;,
+                             born_other_state = &quot;B06001_025&quot;,
+                             income = &quot;B19127_001&quot;),
+              year = .x) %&gt;%
+                  mutate(year = .x))
+
+acs_time2 &lt;- acs_time %&gt;%
+    clean_names() %&gt;%
+    unite(name_year, c(name, year), na.rm = TRUE, sep = &quot;, &quot;) %&gt;%
+    pivot_wider(names_from = variable, values_from = estimate, id_cols = name_year) %&gt;%
+    separate(name_year, into = c(&quot;county&quot;, &quot;state&quot;, &quot;year&quot;), sep = &quot;, &quot;) %&gt;%
+    distinct() %&gt;%
+    left_join(fips_codes %&gt;% select(-state) %&gt;% unite(fips_code, c(state_code, county_code), sep = &quot;&quot;), by= c(&quot;state&quot; = &quot;state_name&quot;, &quot;county&quot;)) %&gt;%
+    mutate(medicaid_perc = medicaid / tot_pop,
+           pov_perc = poverty / tot_pop,
+           college = ba + ma + pd + phd, 
+           college_perc = college / tot_pop,
+           white_perc = tot_white / tot_pop,
+           black_perc = tot_black / tot_pop,
+           ai_perc = tot_ai / tot_pop,
+           asian_perc = tot_asian / tot_pop,
+           other_state_perc = born_other_state / tot_pop,
+           income_per_cap = income / tot_pop,
+           ga = if_else(state == &quot;Georgia&quot;, &quot;Georgia&quot;, &quot;All other states&quot;)) %&gt;%
+    left_join(communities2) </code></pre>
+<p>The first plot below compares Georgia with other states according to six demographic variables, while the second chart looks only at Georgia’s Big Cities, Suburbs, and Exurbs:</p>
+<pre class="r"><code>## change over time plots
+for_plot &lt;- acs_time2 %&gt;%
+    select(county, state, year, ga, acp_county_type, college_perc, white_perc, black_perc,
+           born_other_state, other_state_perc, income_per_cap) %&gt;%
+    mutate(ga = factor(ga, levels = c(&quot;All other states&quot;, &quot;Georgia&quot;))) %&gt;% 
+    group_by(state, year) %&gt;%
+    summarize(college_perc = mean(college_perc, na.rm = TRUE),
+              white_perc = mean(white_perc, na.rm = TRUE),
+              black_perc = mean(black_perc, na.rm = TRUE),
+              born_other_state = sum(born_other_state), 
+              other_state_perc = mean(other_state_perc, na.rm = TRUE),
+              income_per_cap = mean(income_per_cap, na.rm = TRUE)) %&gt;% 
+    pivot_longer(college_perc:income_per_cap) </code></pre>
+<pre><code>## `summarise()` regrouping output by &#39;state&#39; (override with `.groups` argument)</code></pre>
+<pre class="r"><code>for_plot %&gt;%
+    ggplot(aes(year, value, group = state)) +
+    geom_point(aes(color = &quot;#F8766D&quot;)) + 
+    geom_point(data = for_plot %&gt;% filter(state == &quot;Georgia&quot;), aes(color = &quot;#00BFC4&quot;),
+               size = 2.5) +
+    geom_line(aes(color = &quot;#F8766D&quot;)) + 
+    geom_line(data = for_plot %&gt;% filter(state == &quot;Georgia&quot;), aes(color = &quot;#00BFC4&quot;),
+              size = 1.5) +
+    facet_wrap(~ name, scales = &quot;free_y&quot;) +
+    theme(legend.position = &quot;none&quot;) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;Georgia Demographic Change 2014-2019 vs. the US&quot;)</code></pre>
+<pre><code>## Warning: Removed 4 rows containing missing values (geom_point).</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-17-1.png" width="672" /></p>
+<pre class="r"><code>## GA change by county type
+acs_time2 %&gt;%
+    select(county, state, year, ga, acp_county_type, college_perc, white_perc, black_perc,
+           other_state_perc, income_per_cap) %&gt;%
+    filter(state == &quot;Georgia&quot;,
+           acp_county_type %in% c(&quot;Big Cities&quot;, &quot;Exurbs&quot;, &quot;Urban Suburbs&quot;)) %&gt;% 
+    group_by(acp_county_type, year) %&gt;%
+    summarize(college_perc = mean(college_perc, na.rm = TRUE),
+              white_perc = mean(white_perc, na.rm = TRUE),
+              black_perc = mean(black_perc, na.rm = TRUE),
+              other_state_perc = mean(other_state_perc, na.rm = TRUE),
+              income_per_cap = mean(income_per_cap, na.rm = TRUE)) %&gt;% 
+    pivot_longer(college_perc:other_state_perc) %&gt;%
+    drop_na(acp_county_type) %&gt;%
+    ggplot(aes(year, value, group = acp_county_type, color = acp_county_type)) +
+    geom_point() + 
+    geom_line() + 
+    facet_wrap(~ name, scales = &quot;free_y&quot;) +
+    scale_y_continuous(labels = scales::percent_format(1L)) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;Georgia Demographic 2014-2019 Change by County Type&quot;)</code></pre>
+<pre><code>## `summarise()` regrouping output by &#39;acp_county_type&#39; (override with `.groups` argument)</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-17-2.png" width="672" /></p>
+<p>The first chart shows that Georgia counties have a substantial percentage of Black residents and residents born in another state, although these populations haven’t grown significantly in over the last five years. It has seen a marked increase in income per capita as well as in the percentage of college-educated adults (trends in line with the rest of the country). The second chart shows that many college-educated Georgians live in Big Cities, Exurbs, and Urban Suburbs, with increases in all three over the five year window.</p>
+</div>
+<div id="senate-results-vs-pres" class="section level2">
+<h2>Senate results vs pres</h2>
+<p>Next we can compare Ossoff and Warnock’s special election margins over Biden in Georgia. While late polls in Georgia indicated that Ossoff and Warnock might be favored by a few points (<a href="https://projects.fivethirtyeight.com/georgia-senate-polls/">1.8-2.1 points</a>), there was still a lot of uncertainty and apprehension among Georgia Democrats. Even while the Georgia polls were among the most accurate in Georgia of any state for the November election, many top-tier pollsters sat out the January Senate elections, and Democrats’ leads were still within the margin of error. Further, given that Biden ran ahead of both Warnock and Ossoff in November and that there was every reason to expect GOP voters to be highly motivated given Trump’s recent loss (both overall and in the state!), Democrats’ expectations were mostly held in check.</p>
+<pre class="r"><code>ossoff &lt;- read_csv(&quot;C:\\Users\\ChadPeltier\\Downloads\\detailxls\\ossoff.csv&quot;) %&gt;%
+    row_to_names(row_number = 2) %&gt;%
+    clean_names() %&gt;%
+    rename_with(.cols = 2:7, .fn = ~paste0(&quot;perdue_&quot;, .x)) %&gt;%
+    rename_with(.cols = 8:12, .fn = ~paste0(&quot;ossoff_&quot;, .x)) %&gt;%
+    select(county, contains(&quot;total&quot;)) %&gt;%
+    mutate(across(2:4, as.numeric),
+           ossoff_percent = ossoff_total_votes_2 / total,
+           perdue_percent = perdue_total_votes / total,
+           ossoff_margin = ossoff_percent - perdue_percent) %&gt;%
+    select(county, ossoff_percent, ossoff_margin)</code></pre>
+<pre><code>## Warning: Missing column names filled in: &#39;X2&#39; [2], &#39;X3&#39; [3], &#39;X4&#39; [4], &#39;X5&#39; [5],
+## &#39;X6&#39; [6], &#39;X7&#39; [7], &#39;X8&#39; [8], &#39;X9&#39; [9], &#39;X10&#39; [10], &#39;X11&#39; [11], &#39;X12&#39; [12],
+## &#39;X13&#39; [13]</code></pre>
+<pre><code>## Warning in row_to_names(., row_number = 2): Row 2 does not provide unique names.
+## Consider running clean_names() after row_to_names().</code></pre>
+<pre class="r"><code>warnock &lt;- read_csv(&quot;C:\\Users\\ChadPeltier\\Downloads\\detailxls\\warnock.csv&quot;) %&gt;%
+    row_to_names(row_number = 2) %&gt;%
+    clean_names() %&gt;%
+    rename_with(.cols = 2:7, .fn = ~paste0(&quot;loeffler_&quot;, .x))%&gt;%
+    rename_with(.cols = 8:12, .fn = ~paste0(&quot;warnock_&quot;, .x)) %&gt;%
+    select(county, contains(&quot;total&quot;)) %&gt;%
+    mutate(across(2:4, as.numeric),
+           warnock_percent = warnock_total_votes_2 / total,
+           loeffler_percent = loeffler_total_votes / total,
+           warnock_margin = warnock_percent - loeffler_percent) %&gt;%
+    select(county, warnock_percent, warnock_margin)</code></pre>
+<pre><code>## Warning: Missing column names filled in: &#39;X2&#39; [2], &#39;X3&#39; [3], &#39;X4&#39; [4], &#39;X5&#39; [5],
+## &#39;X6&#39; [6], &#39;X7&#39; [7], &#39;X8&#39; [8], &#39;X9&#39; [9], &#39;X10&#39; [10], &#39;X11&#39; [11], &#39;X12&#39; [12],
+## &#39;X13&#39; [13]
+
+## Warning: Row 2 does not provide unique names. Consider running clean_names()
+## after row_to_names().</code></pre>
+<pre class="r"><code>senate &lt;- ossoff %&gt;%
+    left_join(warnock)
+
+ga_senate &lt;- ga %&gt;%
+    left_join(senate) %&gt;%
+    mutate(ossoff_biden_margin = ossoff_percent - dem_perc20,
+           warnock_biden_margin = warnock_percent - dem_perc20)</code></pre>
+<p>Nevertheless, the polls went 2/2 in Georgia for the 2020 election cycle.</p>
+<pre class="r"><code>## counties where ossoff / warnock outperformed Biden 
+ga_senate_sf &lt;- acs_sf %&gt;%
+    left_join(ga_senate)</code></pre>
+<pre><code>## Joining, by = &quot;fips_code&quot;</code></pre>
+<pre class="r"><code>p5 &lt;- ga_senate_sf %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = ossoff_biden_margin)) +
+    theme_void() +
+    scale_fill_gradient2(low = &quot;#ca0020&quot;, high = &quot;#0571b0&quot;,
+                         labels = scales::percent_format()) +
+    labs(title = &quot;Ossoff Margin Over Biden (2021)&quot;) +
+    theme(legend.title = element_blank())
+
+
+p6 &lt;- ga_senate_sf %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = warnock_biden_margin)) +
+    theme_void() +
+    scale_fill_gradient2(low = &quot;#ca0020&quot;, high = &quot;#0571b0&quot;,
+                         labels = scales::percent_format()) +
+    labs(title = &quot;Warnock Margin Over Biden (2021)&quot;) +
+    theme(legend.title = element_blank())
+
+p1 + p2 </code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-19-1.png" width="672" /></p>
+<pre class="r"><code>p5 + p6</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-19-2.png" width="672" /></p>
+<pre class="r"><code>#ggsave(&quot;senate.png&quot;, width = 16/1.2, height = 9/1.2)</code></pre>
+<p>Here we can really see the impact that south Atlanta counties has for Democrats in 2020. Clayton, Douglas, Newton, and Henry counties all voted for Warnock in January with 3% margins over their margins for Biden in November.</p>
+<p>While there wasn’t a ton of ticket splitting in November, Warnock did outperform Ossoff in most counties across Georgia. There are various reasons for this that will take more detailed data to disentangle, but it is generally thought that Perdue, as a non-appointed incumbent, would outperform Loeffler, who also shifted <em>heavily</em> to the right in her wide-open primary where she had to defeat GOP representative Doug Collins (I think we have to acknowledge the likely role that sexism plays in Perdue’s margin, too). Also, some percentage of swing voters might like both Democratic candidates, but would rather the Democrats not take unified control of government.</p>
+<pre class="r"><code>## where warnock beat ossoff
+ga_senate_sf %&gt;%
+    mutate(warnock_ossoff_margin = warnock_biden_margin - ossoff_biden_margin) %&gt;%
+    ggplot() +
+    geom_sf() +
+    geom_sf(aes(fill = warnock_ossoff_margin)) +
+    theme_void() +
+    scale_fill_gradient2(low = &quot;#ca0020&quot;, high = &quot;#0571b0&quot;,
+                         labels = scales::percent_format()) +
+    labs(title = &quot;Warnock Margin Over Ossoff (2021)&quot;) +
+    theme(legend.title = element_blank())</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-20-1.png" width="672" /></p>
+<pre class="r"><code>p7 &lt;- ga_senate_sf %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(ossoff_biden_margin = mean(ossoff_biden_margin, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(ossoff_biden_margin, reorder(acp_county_type, ossoff_biden_margin), 
+               color = cut(ossoff_biden_margin, c(-Inf, -0.0025, 0.0025, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = ossoff_biden_margin, y = acp_county_type, yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;Ossoff 2021 Runoff Margin Over Biden&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,-0.0025]&quot; = &quot;red&quot;,
+                                  &quot;(-0.0025,0.0025]&quot; = &quot;purple&quot;,
+                                  &quot;(0.0025, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>p8 &lt;- ga_senate_sf %&gt;%
+    group_by(acp_county_type) %&gt;%
+    summarize(warnock_biden_margin = mean(warnock_biden_margin, na.rm = TRUE)) %&gt;%
+    drop_na() %&gt;%
+    ggplot(aes(warnock_biden_margin, reorder(acp_county_type, warnock_biden_margin), 
+               color = cut(warnock_biden_margin, c(-Inf, -0.0025, 0.0025, Inf)))) +
+    geom_point(size = 2) +
+    geom_segment(aes(x = 0, xend = warnock_biden_margin, y = acp_county_type, yend = acp_county_type), size = 1) +
+    scale_x_continuous(labels = scales::percent_format()) +
+    labs(y = &quot;&quot;, x = &quot;&quot;, title = &quot;Warnock 2021 Runoff Margin Over Biden&quot;) +
+    scale_color_manual(values = c(&quot;(-Inf,-0.0025]&quot; = &quot;red&quot;,
+                                  &quot;(-0.0025,0.0025]&quot; = &quot;purple&quot;,
+                                  &quot;(0.0025, Inf]&quot; = &quot;royalblue&quot;)) +
+    theme(legend.position = &quot;none&quot;) </code></pre>
+<pre><code>## `summarise()` ungrouping output (override with `.groups` argument)</code></pre>
+<pre class="r"><code>p7 + p8</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-21-1.png" width="672" /></p>
+<p>Interestingly, Warnock’s advantage relative to Ossoff was probably most critical in Atlanta itself, where Ossoff actually performed <em>worse</em> than Biden! Further, and importantly for Democrats moving forward, Ossoff and Warnock both outperformed Biden in the suburbs and exurbs.</p>
+</div>
+<div id="survey" class="section level2">
+<h2>Survey</h2>
+<p>Finally, while this data is interesting, it’s also at the county level and doesn’t give us a clear picture of how individual voters within those counties, with their unique combinations of demographic factors and political opinions, might actually feel about Democratic candidates and Democratic policies.</p>
+<p>While Ossoff and Warnock’s margins over Biden in January and demographic shifts might suggest Democrats have a solid shot of holding on to Georgia in 2022 and 2024, actual polling data would be critical to understanding how much Democrats’ gains were limited to anti-Trump voters and not actual conversions.</p>
+<p>The UCLA / Democracy Fund Nationscape data can give us at least a little more information here. I’ll read in data from the last month of surveys in June 2020, bind them, and then add some Bloomberg CityLab Congressional District data to classify districts on an urban-rural scale, similar to the process above for counties. Then I’ll make chart for three survey questions, with results aggregated by district type.</p>
+<p>Note that thanks to the excellent <code>srvyr</code> package, I was able to incorporate the survey’s weights, which hopefully gives a more accurate picture of the actual US population – although it should be noted that <a href="https://www.nytimes.com/2020/11/10/upshot/polls-what-went-wrong.html">2020 polls still were affected by signficant non-respondent bias that mostly went Trump’s way</a>, even after weighting for factors like education.</p>
+<pre class="r"><code>path &lt;- &quot;C:\\Users\\ChadPeltier\\Downloads\\Nationscape_phase2\\Nationscape-DataRelease_WeeklyMaterials_DTA\\phase_2_v20200814&quot;
+
+files &lt;- tibble(files = list.files(path))
+
+files &lt;- files %&gt;%
+    mutate(files2 = paste0(path, &quot;\\&quot;, files))
+
+files2 &lt;- map(files$files2, ~ list.files(.x, full.names = TRUE)) %&gt;%
+    enframe() %&gt;%
+    unnest(value) %&gt;%
+    mutate(value = str_replace(value, &quot;\\/&quot;, &quot;\\\\&quot;),
+           date = str_extract(value, &quot;(?&lt;=ns)\\d+&quot;),
+           date = ymd(date)) %&gt;%
+    filter(str_detect(value, &quot;\\.dta$&quot;),
+           date &gt; ymd(&quot;2020-06-01&quot;))
+
+nationscape &lt;- map_dfr(files2$value, haven::read_dta)
+
+## add citylab cdi data
+cdi &lt;- read_csv(&quot;https://raw.githubusercontent.com/theatlantic/citylab-data/master/citylab-congress/citylab_cdi.csv&quot;) %&gt;%
+    clean_names() %&gt;%
+    mutate(cd = str_remove(cd, &quot;-&quot;),
+           cd = str_replace(cd, &quot;AL&quot;, &quot;00&quot;))
+
+## final cleaning, replacing 888s, dropping NAs for ID and weight, changing col types 
+nationscape2 &lt;- nationscape %&gt;%
+    left_join(cdi %&gt;% select(cd, cluster), by = c(&quot;congress_district&quot; = &quot;cd&quot;)) %&gt;%
+    mutate(across(everything(), as.character),
+           across(everything(), ~ str_replace_all(., &quot;888&quot;, NA_character_)),
+           weight = as.numeric(weight),
+           cluster = factor(cluster, levels = c(&quot;Pure rural&quot;, &quot;Rural-suburban   mix&quot;,
+                                                &quot;Sparse suburban&quot;, &quot;Dense suburban&quot;,
+                                                &quot;Urban-suburban mix&quot;, &quot;Pure urban&quot;))) %&gt;%
+    drop_na(response_id, weight) </code></pre>
+<p>First, the survey asked “Would you consider voting for Trump?” This question gives us a baseline for how different types of districts would vote.</p>
+<pre class="r"><code>## not_trump
+nationscape2 %&gt;%
+    mutate(ga = if_else(state == &quot;GA&quot;, 1, 0),
+           consider_trump = case_when(consider_trump == 1 ~ &quot;Yes&quot;,
+                                      consider_trump == 2 ~ &quot;No&quot;,
+                                      consider_trump == 999 ~ &quot;Don&#39;t know&quot;)) %&gt;%
+    filter(
+           #cluster %in% c(&quot;Dense suburban&quot;, &quot;Urban-suburban mix&quot;, &quot;Sparse suburban&quot;),
+           !is.na(consider_trump)) %&gt;%
+    as_survey_design(weights = weight) %&gt;%
+    group_by(cluster, consider_trump) %&gt;%
+    summarize(mean = survey_mean()) %&gt;%
+    mutate(upper = mean + mean_se,
+           lower = mean - mean_se,
+           consider_trump = factor(consider_trump, 
+                                   levels = c(&quot;No&quot;, &quot;Don&#39;t know&quot;, &quot;Yes&quot;))) %&gt;%
+    drop_na(cluster) %&gt;%
+    ggplot(aes(mean, cluster, color = consider_trump)) +
+    geom_point() +
+    geom_errorbar(aes(xmin = lower, xmax = upper), width = 0.2) +
+    labs(y = &quot;&quot;, x = &quot;% of U.S.&quot;,
+         title = &quot;Would you consider voting for Trump?&quot;) +
+    scale_x_continuous(labels = scales::percent) +
+    theme(legend.title = element_blank())</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-23-1.png" width="672" /></p>
+<p>This is one of the clearest charts for demonstrating the geographic partisan divide in the US right now. As districts get more rural, the percentage of respondents who would consider voting for Trump increases.</p>
+<pre class="r"><code>nationscape2 %&gt;%
+    mutate(ga = if_else(state == &quot;GA&quot;, 1, 0),
+           group_favorability_democrats = case_when(group_favorability_democrats == 1 ~ &quot;Very favorable&quot;,
+                                      group_favorability_democrats == 2 ~ &quot;Somewhat favorable&quot;,
+                                      group_favorability_democrats == 999 ~ &quot;Haven&#39;t heard enough&quot;,
+                                      group_favorability_democrats == 3 ~ &quot;Somewhat unfavorable&quot;,
+                                      group_favorability_democrats == 4 ~ &quot;Very unfavorable&quot;),
+           group_favorability_democrats = factor(
+              group_favorability_democrats, 
+              levels = c(&quot;Very unfavorable&quot;, &quot;Somewhat unfavorable&quot;, &quot;Haven&#39;t heard enough&quot;,
+                         &quot;Somewhat favorable&quot;, &quot;Very favorable&quot;))) %&gt;%
+    filter(consider_trump %in% c(2, 999),
+           !is.na(group_favorability_democrats)) %&gt;%
+    as_survey_design(weights = weight) %&gt;%
+    group_by(cluster, group_favorability_democrats) %&gt;%
+    summarize(mean = survey_mean()) %&gt;%
+    mutate(upper = mean + mean_se,
+           lower = mean - mean_se) %&gt;%
+    drop_na(cluster) %&gt;%
+    ggplot(aes(mean, cluster, color = group_favorability_democrats)) +
+    geom_point() +
+    geom_errorbar(aes(xmin = lower, xmax = upper), width = 0.2) +
+    labs(y = &quot;&quot;, x = &quot;% of U.S.&quot;, 
+         title = &quot;How favorable is your impression of Democrats?&quot;,
+         subtitle = &quot;For individuals who don&#39;t know or would not consider voting for Trump&quot;) +
+    scale_x_continuous(labels = scales::percent) +
+    theme(legend.title = element_blank())</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-24-1.png" width="672" /></p>
+<p>Next, the chart above looks at whether respondents who don’t know or definitely would not vote for Trump actually like Democrats. I was hoping this view might give some indication whether anti-Trump and swing voters are actually fans of Democrats themselves or just anti-Trump. This suggests that individuals who are anti-Trump are mostly still for Democrats, too. Across all district types, majorities (60-70%) of anti-Trump and undecided respondents have somewhat or very favorable opinions of Democrats.</p>
+<pre class="r"><code>nationscape2 %&gt;%
+    mutate(ga = if_else(state == &quot;GA&quot;, 1, 0),
+           public_option = case_when(public_option == 1 ~ &quot;Agree&quot;,
+                                     public_option == 999 ~ &quot;Not sure&quot;,
+                                     public_option == 2 ~ &quot;Disagree&quot;),
+           public_option = factor(public_option, levels = c(&quot;Disagree&quot;, &quot;Not sure&quot;, &quot;Agree&quot;))) %&gt;%
+    filter(consider_trump %in% c(2, 999),
+           !is.na(public_option)) %&gt;%
+    as_survey_design(weights = weight) %&gt;%
+    group_by(cluster, public_option) %&gt;%
+    summarize(mean = survey_mean()) %&gt;%
+    mutate(upper = mean + mean_se,
+           lower = mean - mean_se) %&gt;%
+    drop_na(cluster) %&gt;%
+    ggplot(aes(mean, cluster, color = public_option)) +
+    geom_point() +
+    geom_errorbar(aes(xmin = lower, xmax = upper), width = 0.2) +
+    labs(y = &quot;&quot;, x = &quot;% of U.S.&quot;, 
+         title = &quot;The government should provide a public option&quot;,
+         subtitle = &quot;For individuals who don&#39;t know or would not consider voting for Trump&quot;) +
+    scale_x_continuous(labels = scales::percent) +
+    theme(legend.title = element_blank())</code></pre>
+<p><img src="/post/2021-01-18-how-durable-are-democrats-gains-in-georgia/index.en_files/figure-html/unnamed-chunk-25-1.png" width="672" /></p>
+<p>Finally, how do those same groups of voters feel about Democratic policies? Again, anti-Trump and undecided voters overwhelmingly like at least one major Democratic policy priority – a public option for health insurance. Majorities of these voters from every district type are in favor of a public option, with another 20% who aren’t sure.</p>
+<p>Overall, while Democratic strategists in Georgia and around the country will work on this question for the next four years, there are decent reasons to expect Georgia to still be a blue-leaning state in 2022 and 2024.</p>
+</div>

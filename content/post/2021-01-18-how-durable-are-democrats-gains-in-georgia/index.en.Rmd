@@ -1,5 +1,5 @@
 ---
-title: How Durable Are Democrats Gains in Georgia?
+title: How Durable Are Democrats' Gains in Georgia?
 author: Chad Peltier
 date: '2021-01-18'
 slug: how-durable-are-democrats-gains-in-georgia
@@ -57,7 +57,7 @@ So in this post I'll break down the 2020 Georgia vote for Biden, and then for Os
 
 Alright, to start with we'll pull demographic data by county from the latest American Community Survey using the amazing `tidycensus` package. I'll download the sf geometries for some mapping as well. 
 
-```{r message=FALSE}
+```{r message=FALSE, results='hide'}
 ## acs
 acs <- get_acs(geography = "county",
                variables = c(tot_pop = "B01003_001", 
@@ -108,7 +108,8 @@ acs2 <- acs %>%
 
 Then I'll pull in the 2020 presidential voting data by county from a few helpful GitHub sites. Note that Alaska presents some difficulties because its election returns are variously reported by either state house districts (where there are 40) and by boroughs (where there are 19, plus 11 census areas within an unorganized district). While I standardized the results for the 2016 and 2020 elections by district for Alaska, the ACP data is by borough (and 2020 election data hasn't been updated by borough yet), so Alaska data isn't included in the ACP comparison charts below. 
 
-```{r}
+
+```{r message=FALSE}
 states <- tibble(state.abb, state.name, state.region) %>%
     rename(state = state.name)
 
